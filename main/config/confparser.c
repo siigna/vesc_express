@@ -37,6 +37,12 @@ int32_t confparser_serialize_main_config_t(uint8_t *buffer, const main_config_t 
 	buffer_append_uint32(buffer, conf->ble_pin, &ind);
 	buffer_append_uint32(buffer, conf->ble_service_capacity, &ind);
 	buffer_append_uint32(buffer, conf->ble_chr_descr_capacity, &ind);
+	buffer[ind++] = conf->vesclog_http_en;
+	buffer_append_uint16(buffer, conf->vesclog_http_port, &ind);
+	buffer[ind++] = conf->vesclog_idle_suppress;
+	buffer_append_int16(buffer, conf->vesclog_idle_timeout_s, &ind);
+	buffer_append_int16(buffer, conf->vesclog_idle_speed_x10, &ind);
+	buffer_append_int16(buffer, conf->vesclog_trim_speed_x10, &ind);
 
 	return ind;
 }
@@ -76,6 +82,12 @@ bool confparser_deserialize_main_config_t(const uint8_t *buffer, main_config_t *
 	conf->ble_pin = buffer_get_uint32(buffer, &ind);
 	conf->ble_service_capacity = buffer_get_uint32(buffer, &ind);
 	conf->ble_chr_descr_capacity = buffer_get_uint32(buffer, &ind);
+	conf->vesclog_http_en         = buffer[ind++];
+	conf->vesclog_http_port       = buffer_get_uint16(buffer, &ind);
+	conf->vesclog_idle_suppress   = buffer[ind++];
+	conf->vesclog_idle_timeout_s  = buffer_get_int16(buffer, &ind);
+	conf->vesclog_idle_speed_x10  = buffer_get_int16(buffer, &ind);
+	conf->vesclog_trim_speed_x10  = buffer_get_int16(buffer, &ind);
 
 	return true;
 }
@@ -99,6 +111,12 @@ void confparser_set_defaults_main_config_t(main_config_t *conf) {
 	strcpy(conf->ble_name, CONF_BLE_NAME);
 	conf->ble_pin = CONF_BLE_PIN;
 	conf->ble_service_capacity = CONF_BLE_SERVICE_CAPACITY;
-	conf->ble_chr_descr_capacity = CONF_BLE_CHR_DESCR_CAPACITY;
+	conf->ble_chr_descr_capacity  = CONF_BLE_CHR_DESCR_CAPACITY;
+	conf->vesclog_http_en         = CONF_VESCLOG_HTTP_EN;
+	conf->vesclog_http_port       = CONF_VESCLOG_HTTP_PORT;
+	conf->vesclog_idle_suppress   = CONF_VESCLOG_IDLE_SUPPRESS;
+	conf->vesclog_idle_timeout_s  = CONF_VESCLOG_IDLE_TIMEOUT_S;
+	conf->vesclog_idle_speed_x10  = CONF_VESCLOG_IDLE_SPEED_X10;
+	conf->vesclog_trim_speed_x10  = CONF_VESCLOG_TRIM_SPEED_X10;
 }
 

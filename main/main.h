@@ -45,6 +45,14 @@ typedef struct {
 	uint32_t ble_pin;
 	uint32_t ble_service_capacity;
 	uint32_t ble_chr_descr_capacity;
+
+	/* Log server settings */
+	bool vesclog_http_en;
+	uint16_t vesclog_http_port;
+	bool vesclog_idle_suppress;
+	int16_t vesclog_idle_timeout_s;
+	int16_t vesclog_idle_speed_x10;   /* speed * 10, e.g. 5 = 0.5 km/h */
+	int16_t vesclog_trim_speed_x10;
 } main_config_t;
 #endif
 

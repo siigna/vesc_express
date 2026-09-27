@@ -366,6 +366,90 @@ p, li { white-space: pre-wrap; }
             <suffix></suffix>
             <vTx>5</vTx>
         </ble_chr_descr_capacity>
+        <vesclog_http_en>
+            <longName>HTTP Log Server</longName>
+            <type>4</type>
+            <transmittable>1</transmittable>
+            <description>&lt;p&gt;Enable the vesclog HTTP server on port 80. Serves the log viewer and CSV files over WiFi. Requires reboot.&lt;/p&gt;</description>
+            <cDefine>CONF_VESCLOG_HTTP_EN</cDefine>
+            <valInt>1</valInt>
+            <enumNames>Disabled</enumNames>
+            <enumNames>Enabled</enumNames>
+        </vesclog_http_en>
+        <vesclog_http_port>
+            <longName>HTTP Port</longName>
+            <type>2</type>
+            <transmittable>1</transmittable>
+            <description>&lt;p&gt;Port for the vesclog HTTP server. Default 80. Requires reboot.&lt;/p&gt;</description>
+            <cDefine>CONF_VESCLOG_HTTP_PORT</cDefine>
+            <editorScale>1</editorScale>
+            <editAsPercentage>0</editAsPercentage>
+            <maxInt>65535</maxInt>
+            <minInt>1</minInt>
+            <showDisplay>0</showDisplay>
+            <stepInt>1</stepInt>
+            <valInt>80</valInt>
+            <suffix></suffix>
+            <vTx>3</vTx>
+        </vesclog_http_port>
+        <vesclog_idle_suppress>
+            <longName>Idle Log Suppression</longName>
+            <type>4</type>
+            <transmittable>1</transmittable>
+            <description>&lt;p&gt;When enabled, log rows are dropped while the vehicle is stationary. Reduces file size on long idle periods.&lt;/p&gt;</description>
+            <cDefine>CONF_VESCLOG_IDLE_SUPPRESS</cDefine>
+            <valInt>0</valInt>
+            <enumNames>Disabled</enumNames>
+            <enumNames>Enabled</enumNames>
+        </vesclog_idle_suppress>
+        <vesclog_idle_timeout_s>
+            <longName>Idle Timeout</longName>
+            <type>2</type>
+            <transmittable>1</transmittable>
+            <description>&lt;p&gt;Seconds of no motion before log rows are suppressed. Only used when Idle Log Suppression is Enabled.&lt;/p&gt;</description>
+            <cDefine>CONF_VESCLOG_IDLE_TIMEOUT_S</cDefine>
+            <editorScale>1</editorScale>
+            <editAsPercentage>0</editAsPercentage>
+            <maxInt>300</maxInt>
+            <minInt>1</minInt>
+            <showDisplay>0</showDisplay>
+            <stepInt>1</stepInt>
+            <valInt>30</valInt>
+            <suffix> s</suffix>
+            <vTx>4</vTx>
+        </vesclog_idle_timeout_s>
+        <vesclog_idle_speed_x10>
+            <longName>Idle Speed Threshold</longName>
+            <type>2</type>
+            <transmittable>1</transmittable>
+            <description>&lt;p&gt;Speed below which the vehicle is considered idle, in units of 0.1 km/h. E.g. 5 = 0.5 km/h.&lt;/p&gt;</description>
+            <cDefine>CONF_VESCLOG_IDLE_SPEED_X10</cDefine>
+            <editorScale>1</editorScale>
+            <editAsPercentage>0</editAsPercentage>
+            <maxInt>200</maxInt>
+            <minInt>0</minInt>
+            <showDisplay>0</showDisplay>
+            <stepInt>1</stepInt>
+            <valInt>5</valInt>
+            <suffix> ×0.1 km/h</suffix>
+            <vTx>4</vTx>
+        </vesclog_idle_speed_x10>
+        <vesclog_trim_speed_x10>
+            <longName>Trim Speed Threshold</longName>
+            <type>2</type>
+            <transmittable>1</transmittable>
+            <description>&lt;p&gt;Speed threshold used by the HTTP /api/trim endpoint when stripping idle rows from existing log files, in units of 0.1 km/h.&lt;/p&gt;</description>
+            <cDefine>CONF_VESCLOG_TRIM_SPEED_X10</cDefine>
+            <editorScale>1</editorScale>
+            <editAsPercentage>0</editAsPercentage>
+            <maxInt>200</maxInt>
+            <minInt>0</minInt>
+            <showDisplay>0</showDisplay>
+            <stepInt>1</stepInt>
+            <valInt>5</valInt>
+            <suffix> ×0.1 km/h</suffix>
+            <vTx>4</vTx>
+        </vesclog_trim_speed_x10>
     </Params>
     <SerOrder>
         <ser>controller_id</ser>
@@ -387,6 +471,12 @@ p, li { white-space: pre-wrap; }
         <ser>ble_pin</ser>
         <ser>ble_service_capacity</ser>
         <ser>ble_chr_descr_capacity</ser>
+        <ser>vesclog_http_en</ser>
+        <ser>vesclog_http_port</ser>
+        <ser>vesclog_idle_suppress</ser>
+        <ser>vesclog_idle_timeout_s</ser>
+        <ser>vesclog_idle_speed_x10</ser>
+        <ser>vesclog_trim_speed_x10</ser>
     </SerOrder>
     <Grouping>
         <group>
@@ -397,6 +487,10 @@ p, li { white-space: pre-wrap; }
                     <param>controller_id</param>
                     <param>can_baud_rate</param>
                     <param>can_status_rate_hz</param>
+                    <param>::sep::Idle Log Suppression</param>
+                    <param>vesclog_idle_suppress</param>
+                    <param>vesclog_idle_timeout_s</param>
+                    <param>vesclog_idle_speed_x10</param>
                 </subgroupParams>
             </subgroup>
             <subgroup>
@@ -418,6 +512,11 @@ p, li { white-space: pre-wrap; }
                     <param>tcp_hub_port</param>
                     <param>tcp_hub_id</param>
                     <param>tcp_hub_pass</param>
+                    <param>::sep::Log Server</param>
+                    <param>vesclog_http_en</param>
+                    <param>vesclog_http_port</param>
+                    <param>::sep::Log Trim Threshold</param>
+                    <param>vesclog_trim_speed_x10</param>
                 </subgroupParams>
             </subgroup>
             <subgroup>

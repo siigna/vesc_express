@@ -98,6 +98,36 @@
 #define CONF_BLE_CHR_DESCR_CAPACITY 0
 #endif
 
+// Log Server: HTTP server enable (1=enabled)
+#ifndef CONF_VESCLOG_HTTP_EN
+#define CONF_VESCLOG_HTTP_EN 1
+#endif
+
+// Log Server: HTTP port
+#ifndef CONF_VESCLOG_HTTP_PORT
+#define CONF_VESCLOG_HTTP_PORT 80
+#endif
+
+// Log Server: idle logging suppression (0=disabled)
+#ifndef CONF_VESCLOG_IDLE_SUPPRESS
+#define CONF_VESCLOG_IDLE_SUPPRESS 0
+#endif
+
+// Log Server: idle timeout in seconds
+#ifndef CONF_VESCLOG_IDLE_TIMEOUT_S
+#define CONF_VESCLOG_IDLE_TIMEOUT_S 30
+#endif
+
+// Log Server: idle speed threshold ×10 (5 = 0.5 km/h)
+#ifndef CONF_VESCLOG_IDLE_SPEED_X10
+#define CONF_VESCLOG_IDLE_SPEED_X10 5
+#endif
+
+// Log Server: trim speed threshold ×10 (5 = 0.5 km/h)
+#ifndef CONF_VESCLOG_TRIM_SPEED_X10
+#define CONF_VESCLOG_TRIM_SPEED_X10 5
+#endif
+
 // CONF_DEFAULT_H_
 #endif
 

@@ -1,0 +1,1458 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<title>VESC Log</title>
+<style>
+* { box-sizing: border-box; margin: 0; padding: 0; }
+
+:root {
+  --bg:     #0d1117;
+  --bg2:    #161b22;
+  --bg3:    #21262d;
+  --border: #30363d;
+  --text:   #e6edf3;
+  --muted:  #7d8590;
+}
+
+html, body {
+  background: var(--bg);
+  color: var(--text);
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  font-size: 14px;
+  overscroll-behavior: none;
+  -webkit-tap-highlight-color: transparent;
+  overflow-x: hidden;
+}
+
+/* ── Landing ─────────────────────────────────────────────────────────── */
+#landing {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  min-height: 100dvh;
+  gap: 20px;
+  padding: 32px 24px;
+  text-align: center;
+}
+#landing h1 { font-size: 22px; font-weight: 700; }
+
+#deviceSection {
+  display: none;
+  width: 100%;
+  max-width: 400px;
+  text-align: left;
+}
+#deviceSection h2 {
+  font-size: 12px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: .6px;
+  color: var(--muted);
+  margin-bottom: 8px;
+  padding: 0 2px;
+}
+#logList { border-radius: 10px; overflow: hidden; border: 1px solid var(--border); }
+#logList .placeholder {
+  padding: 16px;
+  color: var(--muted);
+  font-size: 13px;
+  background: var(--bg2);
+  text-align: center;
+}
+.log-entry {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 13px 16px;
+  background: var(--bg2);
+  border-bottom: 1px solid var(--border);
+  cursor: pointer;
+  transition: background .12s;
+  gap: 12px;
+}
+.log-entry:last-child { border-bottom: none; }
+.log-entry:active, .log-entry:hover { background: var(--bg3); }
+.log-name { font-size: 13px; font-weight: 500; flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.log-meta { font-size: 11px; color: var(--muted); white-space: nowrap; flex-shrink: 0; }
+.log-actions { display: flex; align-items: center; gap: 6px; flex-shrink: 0; }
+.log-btn {
+  background: transparent;
+  border: 1px solid var(--border);
+  color: var(--muted);
+  padding: 2px 7px;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 13px;
+  line-height: 1.6;
+  transition: border-color .12s, color .12s;
+}
+.log-btn:hover { border-color: #58a6ff; color: #58a6ff; }
+.log-btn.danger:hover { border-color: #f78166; color: #f78166; }
+
+.divider {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  max-width: 400px;
+  color: var(--muted);
+  font-size: 12px;
+}
+.divider::before, .divider::after {
+  content: '';
+  flex: 1;
+  height: 1px;
+  background: var(--border);
+}
+
+#dropZone {
+  width: 100%;
+  max-width: 400px;
+  padding: 36px 24px;
+  border: 2px dashed var(--border);
+  border-radius: 14px;
+  cursor: pointer;
+  color: var(--muted);
+  transition: border-color .15s, background .15s, color .15s;
+  user-select: none;
+}
+#dropZone:hover, #dropZone.over {
+  border-color: #58a6ff;
+  background: rgba(88,166,255,.06);
+  color: #58a6ff;
+}
+#dropZone svg { display: block; margin: 0 auto 10px; }
+#dropZone strong { display: block; font-size: 14px; font-weight: 600; }
+#dropZone span   { font-size: 12px; }
+#fileInput { display: none; }
+
+/* ── App ─────────────────────────────────────────────────────────────── */
+#app { display: none; }
+
+#topbar {
+  position: sticky;
+  top: 0;
+  z-index: 200;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 14px;
+  background: var(--bg2);
+  border-bottom: 1px solid var(--border);
+}
+#topbar h1 {
+  flex: 1;
+  font-size: 14px;
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.btn-sm {
+  background: transparent;
+  border: 1px solid var(--border);
+  color: var(--muted);
+  padding: 5px 11px;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 12px;
+  white-space: nowrap;
+  transition: border-color .15s, color .15s;
+}
+.btn-sm:hover { border-color: #58a6ff; color: #58a6ff; }
+
+.fst .sumrow td { color: var(--muted); border-bottom-color: var(--border); }
+.fst .sumrow .sv { color: var(--text); font-weight: 600; font-family: ui-monospace, 'SF Mono', monospace; }
+
+/* ── Panels ──────────────────────────────────────────────────────────── */
+#panels { padding-bottom: 8px; }
+
+.panel { border-bottom: 1px solid var(--border); }
+.panel-head {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px 10px;
+  padding: 7px 14px 3px;
+}
+.panel-title {
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: .7px;
+  color: var(--muted);
+}
+.series-chip {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 12px;
+  font-family: ui-monospace, 'SF Mono', monospace;
+}
+.series-dot  { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
+.series-name { color: var(--muted); }
+.series-val  { font-weight: 600; }
+.panel-canvas {
+  display: block;
+  width: 100%;
+  height: 140px;
+  touch-action: none;
+  cursor: crosshair;
+}
+
+/* ── GPS ─────────────────────────────────────────────────────────────── */
+#gpsWrap { display: none; padding: 0 0 8px; border-bottom: 1px solid var(--border); }
+#gpsHead {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 7px 14px 4px;
+}
+#gpsHead span { font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: .7px; color: var(--muted); }
+#gpsLegend { font-size: 11px; color: var(--muted); }
+#gpsMap { width: 100%; height: 300px; }
+
+/* ── Settings panel ──────────────────────────────────────────────────── */
+#settingsPanel {
+  display: none;
+  background: var(--bg2);
+  border-bottom: 1px solid var(--border);
+  padding: 10px 14px;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 12px 20px;
+}
+#settingsPanel.open { display: flex; }
+.set-group { display: flex; flex-direction: column; gap: 4px; }
+.set-label { font-size: 10px; color: var(--muted); text-transform: uppercase; letter-spacing: .5px; }
+.set-input {
+  background: var(--bg3);
+  border: 1px solid var(--border);
+  color: var(--text);
+  padding: 5px 8px;
+  border-radius: 6px;
+  font-size: 13px;
+  width: 110px;
+}
+#setHint { font-size: 11px; color: var(--muted); align-self: center; }
+
+/* ── Field stats table ───────────────────────────────────────────────── */
+#fieldStats { border-bottom: 1px solid var(--border); overflow-x: auto; }
+.fst {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+  white-space: nowrap;
+}
+.fst thead th {
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: .5px;
+  color: var(--muted);
+  padding: 6px 12px;
+  text-align: right;
+  background: var(--bg2);
+  border-bottom: 1px solid var(--border);
+}
+.fst thead th:first-child { text-align: left; }
+.fst tbody td {
+  padding: 4px 12px;
+  text-align: right;
+  font-family: ui-monospace, 'SF Mono', monospace;
+  color: var(--text);
+  border-bottom: 1px solid var(--bg3);
+}
+.fst tbody td:first-child {
+  text-align: left;
+  color: var(--muted);
+  font-family: inherit;
+}
+.fst tbody tr:last-child td { border-bottom: none; }
+
+/* ── Overview bar ────────────────────────────────────────────────────────────────────────────────── */
+#overviewCanvas {
+  display: block;
+  width: 100%;
+  height: 36px;
+  touch-action: none;
+  cursor: crosshair;
+  background: #0d1117;
+  border-bottom: 1px solid var(--border);
+}
+
+/* ── Progress ────────────────────────────────────────────────────────── */
+#loadingOverlay {
+  display: none;
+  padding: 16px;
+  background: var(--bg2);
+  border-radius: 10px;
+  border: 1px solid var(--border);
+  text-align: center;
+}
+#loadingOverlay.active { display: block; }
+.progress-track {
+  height: 4px;
+  background: var(--bg3);
+  border-radius: 2px;
+  margin: 10px 0 6px;
+  overflow: hidden;
+}
+.progress-fill {
+  height: 100%;
+  background: #58a6ff;
+  border-radius: 2px;
+  width: 0%;
+  transition: width .1s linear;
+}
+#loadingLabel { font-size: 12px; color: var(--muted); }
+#loadingBytes { font-size: 11px; color: var(--muted); margin-top: 2px; }
+
+/* ── Update ─────────────────────────────────────────────────────────── */
+#updateSection {
+  display: none;
+  width: 100%;
+  max-width: 400px;
+  text-align: left;
+}
+#updateSection h2 {
+  font-size: 12px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: .6px;
+  color: var(--muted);
+  margin-bottom: 8px;
+  padding: 0 2px;
+}
+.update-row {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+#updateStatus {
+  font-size: 12px;
+  color: var(--muted);
+  margin-top: 6px;
+  min-height: 16px;
+}
+#updateFileInput { display: none; }
+.btn-upload {
+  flex: 1;
+  padding: 11px 16px;
+  background: var(--bg2);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  color: var(--text);
+  font-size: 13px;
+  cursor: pointer;
+  text-align: center;
+  transition: border-color .15s, background .15s;
+}
+.btn-upload:hover { border-color: #58a6ff; background: var(--bg3); }
+
+/* ── Footer ──────────────────────────────────────────────────────────── */
+#footer { padding: 16px 14px; text-align: center; font-size: 11px; color: var(--border); }
+</style>
+</head>
+<body>
+
+<!-- ── Landing ─────────────────────────────────────────────────────────── -->
+<div id="landing">
+  <h1>VESC Log Viewer</h1>
+
+  <!-- Device log list — shown when served from VESC Express over HTTP -->
+  <div id="deviceSection">
+    <h2>Logs on device</h2>
+    <div id="loadingOverlay">
+      <div id="loadingLabel">Loading…</div>
+      <div class="progress-track"><div class="progress-fill" id="progressFill"></div></div>
+      <div id="loadingBytes"></div>
+    </div>
+    <div id="logList"><div class="placeholder">Loading…</div></div>
+  </div>
+
+  <div class="divider" id="divider" style="display:none">or</div>
+
+  <div id="dropZone" onclick="document.getElementById('fileInput').click()">
+    <svg width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+      <polyline points="17 8 12 3 7 8"/>
+      <line x1="12" y1="3" x2="12" y2="15"/>
+    </svg>
+    <strong>Open local CSV</strong>
+    <span>tap or drag and drop</span>
+  </div>
+  <div id="updateSection">
+    <h2>Update viewer</h2>
+    <div class="update-row">
+      <div class="btn-upload" onclick="document.getElementById('updateFileInput').click()">Choose new vesclog.html…</div>
+    </div>
+    <div id="updateStatus"></div>
+    <input type="file" id="updateFileInput" accept=".html,.HTML">
+    <div style="display:flex;gap:12px;margin-top:8px">
+      <a href="/export"   style="font-size:12px;color:var(--muted);text-decoration:none" download="vesclog.html">↓ SD card</a>
+      <a href="/embedded" style="font-size:12px;color:var(--muted);text-decoration:none" download="vesclog.html">↓ Embedded</a>
+    </div>
+  </div>
+  <input type="file" id="fileInput" accept=".csv,.CSV">
+</div>
+
+<!-- ── App ─────────────────────────────────────────────────────────────── -->
+<div id="app">
+  <div id="topbar">
+    <h1 id="fileName"></h1>
+    <button class="btn-sm" onclick="resetZoom()">Reset</button>
+    <button class="btn-sm" id="selectBtn" onclick="toggleSelectMode()">⊡ Sel</button>
+    <button class="btn-sm" id="exportBtn" style="display:none" onclick="exportCharts()">⬇ PNG</button>
+    <button class="btn-sm" id="settingsBtn" style="display:none" onclick="toggleSettings()">⚙</button>
+    <button class="btn-sm" id="downloadBtn" style="display:none" onclick="downloadLog()">↓ CSV</button>
+    <button class="btn-sm" id="backBtn">Back</button>
+  </div>
+  <div id="settingsPanel">
+    <div class="set-group">
+      <label class="set-label">Wheel circumference (mm)</label>
+      <input type="number" class="set-input" id="setCirc" placeholder="auto-detect" min="100" max="5000" step="1">
+    </div>
+    <div class="set-group">
+      <label class="set-label">Gear ratio</label>
+      <input type="number" class="set-input" id="setGear" placeholder="1.0" min="0.01" max="20" step="0.01">
+    </div>
+    <div class="set-group">
+      <label class="set-label">Hide stationary below (km/h)</label>
+      <input type="number" class="set-input" id="setMinSpd" placeholder="0 = off" min="0" max="50" step="0.5">
+    </div>
+    <span id="setHint"></span>
+    <button class="btn-sm" onclick="applySettings()">Apply</button>
+    <button class="btn-sm" onclick="clearSettings()">Clear</button>
+  </div>
+  <div id="fieldStats"></div>
+  <canvas id="overviewCanvas"></canvas>
+  <div id="panels"></div>
+  <div id="gpsWrap">
+    <div id="gpsHead">
+      <span>GPS Track</span>
+      <span id="gpsLegend">color: speed (blue→red) &nbsp; ● start &nbsp; ● end</span>
+    </div>
+    <div id="gpsMap"></div>
+  </div>
+  <div id="footer">vesclog — no upload, no tracking</div>
+</div>
+
+<script>
+'use strict';
+
+// ── Constants ───────────────────────────────────────────────────────────────
+const COLORS = [
+  '#58a6ff','#f78166','#56d364','#d2a8ff',
+  '#ffa657','#79c0ff','#ff7b72','#a5f3fc',
+];
+
+const PANEL_DEFS = [
+  { title: 'Speed',        keys: ['kmh_vesc','kmh_cal','gnss_h_vel'] },
+  { title: 'RPM',          keys: ['RPM','Duty'] },
+  { title: 'Electrical',   keys: ['Input Voltage'] },
+  { title: 'Current',      keys: ['Current','Current In'] },
+  { title: 'Temperature',  keys: ['Temp Fet','Temp Motor'] },
+  { title: 'Battery',      keys: ['Batt','cnt_wh','cnt_ah'] },
+  { title: 'IMU',          keys: ['roll','pitch','yaw'] },
+  { title: 'Trip',         keys: ['trip_vesc','trip_vesc_abs','gnss_alt'] },
+  { title: 'FOC Currents', keys: ['iq','id','iq-set','id-set','iq-target','id-target'] },
+  { title: 'FOC Voltages', keys: ['vq','vd'] },
+  { title: 'Aux',          keys: ['ADC1','ADC2','Power Factor','fault','Fault'] },
+];
+
+// ── App state ───────────────────────────────────────────────────────────────
+let S = { data: null, meta: null, timeKey: null, view: null, cursor: null, panels: [], fileName: null, rawText: null };
+let rafId = null;
+let brushMode = false, brushT0 = null, brushT1 = null;
+
+function toggleSelectMode() {
+  brushMode = !brushMode;
+  brushT0 = null; brushT1 = null;
+  const btn = document.getElementById('selectBtn');
+  btn.style.borderColor = brushMode ? '#58a6ff' : '';
+  btn.style.color       = brushMode ? '#58a6ff' : '';
+  btn.textContent       = brushMode ? '✕ Sel' : '⊡ Sel';
+  scheduleRender();
+}
+
+function scheduleRender() {
+  if (rafId === null) rafId = requestAnimationFrame(() => { rafId = null; renderAll(); });
+}
+
+// ── CSV parser ──────────────────────────────────────────────────────────────
+function parseVescCsv(text) {
+  const NL = text.indexOf('\r\n') >= 0 ? '\r\n' : '\n';
+  const lines = text.split(NL);
+
+  const fieldDefs = lines[0].split(';').map(part => {
+    const [key='',name='',unit='',prec='',isRel='',isTs=''] = part.split(':');
+    return { key, name: name||key, unit, precision: parseInt(prec)||2,
+             isRelative: isRel==='1', isTimestamp: isTs==='1' };
+  }).filter(f => f.key);
+
+  const keys    = fieldDefs.map(f => f.key);
+  const meta    = Object.fromEntries(fieldDefs.map(f => [f.key, f]));
+  const timeKey = (fieldDefs.find(f => f.isTimestamp)||{}).key || null;
+
+  const tmp = keys.map(() => []);
+  for (let i = 2; i < lines.length; i++) {
+    const row = lines[i].trim();
+    if (!row) continue;
+    const cols = row.split(';');
+    for (let ci = 0; ci < keys.length; ci++) {
+      const v = parseFloat(cols[ci]);
+      tmp[ci].push(isNaN(v) ? NaN : v);
+    }
+  }
+
+  let keep = null;
+  if (timeKey) {
+    const ti = keys.indexOf(timeKey);
+    keep = tmp[ti].reduce((a,v,i) => { if (isFinite(v)) a.push(i); return a; }, []);
+  }
+
+  const data = {};
+  keys.forEach((k, ci) => {
+    if (keep) {
+      const a = new Float64Array(keep.length);
+      keep.forEach((si,di) => a[di] = tmp[ci][si]);
+      data[k] = a;
+    } else {
+      data[k] = new Float64Array(tmp[ci]);
+    }
+  });
+
+  return { data, meta, timeKey };
+}
+
+// ── Utilities ───────────────────────────────────────────────────────────────
+function loBound(arr, val) {
+  let lo=0, hi=arr.length;
+  while (lo<hi) { const m=(lo+hi)>>1; arr[m]<val ? lo=m+1 : hi=m; }
+  return lo;
+}
+function hiBound(arr, val) {
+  let lo=0, hi=arr.length;
+  while (lo<hi) { const m=(lo+hi)>>1; arr[m]<=val ? lo=m+1 : hi=m; }
+  return lo;
+}
+function fmtVal(v, m) {
+  if (!isFinite(v)) return '—';
+  return v.toFixed(m.precision) + (m.unit ? ' '+m.unit : '');
+}
+function fmtDur(s) {
+  const h=Math.floor(s/3600), m=Math.floor((s%3600)/60), sec=Math.floor(s%60);
+  if (h>0) return `${h}h ${m}m`;
+  if (m>0) return `${m}m ${sec}s`;
+  return `${s.toFixed(1)}s`;
+}
+function fmtSize(bytes) {
+  if (bytes > 1048576) return (bytes/1048576).toFixed(1)+' MB';
+  if (bytes > 1024)    return Math.round(bytes/1024)+' KB';
+  return bytes+' B';
+}
+
+function firstFinite(arr) {
+  for (let i=0; i<arr.length; i++) if (isFinite(arr[i])) return arr[i];
+  return NaN;
+}
+function lastFinite(arr) {
+  for (let i=arr.length-1; i>=0; i--) if (isFinite(arr[i])) return arr[i];
+  return NaN;
+}
+
+// ── Stats ───────────────────────────────────────────────────────────────────
+function buildStats(iA, iB) {
+  const {data, timeKey} = S;
+  const t = data[timeKey];
+  if (iA === undefined) { iA = 0; iB = t.length - 1; }
+  const dur = t[iB] - t[iA];
+  const rows = [{val: fmtDur(dur), label: 'Duration'}];
+
+  const dk = ['trip_vesc_abs','trip_gnss','trip_vesc'].find(k => k in data);
+  let dist = NaN;
+  if (dk) {
+    const d = data[dk];
+    let first = NaN, last = NaN;
+    for (let i=iA;i<=iB;i++) { if (isFinite(d[i])) { if (!isFinite(first)) first=d[i]; last=d[i]; } }
+    dist = Math.abs(last - first);
+    rows.push({ val: isFinite(dist) ? (dist>=1000?(dist/1000).toFixed(2)+' km':Math.round(dist)+' m') : '—', label: 'Distance' });
+  }
+  const spdKey = ['gnss_h_vel','kmh_vesc'].find(k => k in data);
+  if (spdKey) {
+    let mx=0; for (let i=iA;i<=iB;i++) { const v=data[spdKey][i]; if (isFinite(v)&&v>mx) mx=v; }
+    rows.push({ val: mx.toFixed(1)+' km/h', label: 'Top Speed' });
+  }
+  if ('cnt_wh' in data) {
+    const d = data.cnt_wh;
+    let first=NaN, last=NaN;
+    for (let i=iA;i<=iB;i++) { if (isFinite(d[i])) { if (!isFinite(first)) first=d[i]; last=d[i]; } }
+    const wh = Math.abs(last - first);
+    rows.push({ val: isFinite(wh) ? wh.toFixed(1)+' Wh' : '—', label: 'Energy' });
+    if (isFinite(dist)&&dist>100&&isFinite(wh)&&wh>0)
+      rows.push({ val: (wh/(dist/1000)).toFixed(1)+' Wh/km', label: 'Efficiency' });
+  }
+  if ('Input Voltage' in data) {
+    let mn=Infinity,mx=-Infinity;
+    for (let i=iA;i<=iB;i++) { const v=data['Input Voltage'][i]; if (isFinite(v)){if(v<mn)mn=v;if(v>mx)mx=v;} }
+    rows.push({ val: mn.toFixed(1)+'–'+mx.toFixed(1)+' V', label: 'Voltage' });
+  }
+  const tmpKeys=['Temp Fet','Temp Motor'].filter(k=>k in data);
+  if (tmpKeys.length) {
+    let mx=0; tmpKeys.forEach(k=>{for(let i=iA;i<=iB;i++){const v=data[k][i];if(isFinite(v)&&v>mx)mx=v;}});
+    rows.push({ val: mx.toFixed(0)+' °C', label: 'Peak Temp' });
+  }
+  rows.push({ val: (iB-iA+1).toLocaleString(), label: 'Samples' });
+  return rows;
+}
+
+// ── Panel rendering ─────────────────────────────────────────────────────────
+function yRangeFor(arr, iA, iB) {
+  let mn=Infinity, mx=-Infinity;
+  for (let i=iA; i<=iB; i++) { const v=arr[i]; if (isFinite(v)){if(v<mn)mn=v;if(v>mx)mx=v;} }
+  if (!isFinite(mn)) return null;
+  if (mn===mx) { mn-=1; mx+=1; }
+  const pad=(mx-mn)*0.07||0.5;
+  return { mn: mn-pad, mx: mx+pad };
+}
+
+const LEFT = 52;
+const RIGHT = 44;
+
+function drawPanel(p) {
+  const cv=p.canvas, ctx=cv.getContext('2d');
+  const dpr=devicePixelRatio||1, W=cv.clientWidth, H=cv.clientHeight;
+  if (cv.width!==Math.round(W*dpr)||cv.height!==Math.round(H*dpr)) {
+    cv.width=Math.round(W*dpr); cv.height=Math.round(H*dpr);
+  }
+  ctx.resetTransform(); ctx.scale(dpr, dpr);
+
+  const {t0,t1}=S.view, t=S.data[S.timeKey];
+  const iA=loBound(t,t0), iB=Math.min(hiBound(t,t1), t.length-1);
+  const CW=W-LEFT-RIGHT;
+  const hasSecondary = p.keys.filter(k=>k in S.data).length > 1;
+
+  ctx.fillStyle='#0d1117'; ctx.fillRect(0,0,W,H);
+  ctx.fillStyle='#080c10';  ctx.fillRect(0,0,LEFT,H);
+  if (hasSecondary) ctx.fillRect(W-RIGHT,0,RIGHT,H);
+
+  ctx.strokeStyle='#1c2128'; ctx.lineWidth=1;
+  for (let g=1; g<4; g++) {
+    const y=(g/4)*H;
+    ctx.beginPath(); ctx.moveTo(LEFT,y); ctx.lineTo(W-RIGHT,y); ctx.stroke();
+  }
+  ctx.strokeStyle='#21262d';
+  ctx.beginPath(); ctx.moveTo(LEFT,0); ctx.lineTo(LEFT,H); ctx.stroke();
+  if (hasSecondary) {
+    ctx.beginPath(); ctx.moveTo(W-RIGHT,0); ctx.lineTo(W-RIGHT,H); ctx.stroke();
+  }
+
+  p.keys.forEach((key, ci) => {
+    if (!(key in S.data)) return;
+    const arr=S.data[key], rng=yRangeFor(arr,iA,iB);
+    if (!rng) return;
+    const {mn,mx}=rng;
+    const color=COLORS[ci%COLORS.length];
+
+    // Forward-fill gnss_ fields (1 Hz GPS in 10 Hz stream) for continuous line
+    const holdNaN = key.startsWith('gnss_') || key==='kmh_cal';
+    ctx.beginPath(); ctx.strokeStyle=color; ctx.lineWidth=1.5;
+    let down=false, lastV=NaN;
+    for (let i=iA; i<=iB; i++) {
+      let v=arr[i];
+      if (isFinite(v)) lastV=v;
+      else if (holdNaN && isFinite(lastV)) v=lastV;
+      if (!isFinite(v)) { down=false; continue; }
+      const px=LEFT+((t[i]-t0)/(t1-t0))*CW;
+      const py=H-((v-mn)/(mx-mn))*(H-2)-1;
+      down ? ctx.lineTo(px,py) : ctx.moveTo(px,py);
+      down=true;
+    }
+    ctx.stroke();
+
+    const lm=S.meta[key]||{precision:2};
+    const prec=Math.min(lm.precision,2);
+    ctx.font='9px sans-serif'; ctx.fillStyle=color; ctx.globalAlpha=0.85;
+    if (ci===0) {
+      ctx.textAlign='right';
+      ctx.textBaseline='top';    ctx.fillText(mx.toFixed(prec), LEFT-4, 2);
+      ctx.textBaseline='bottom'; ctx.fillText(mn.toFixed(prec), LEFT-4, H-2);
+    } else if (ci===1) {
+      ctx.textAlign='left';
+      ctx.textBaseline='top';    ctx.fillText(mx.toFixed(prec), W-RIGHT+4, 2);
+      ctx.textBaseline='bottom'; ctx.fillText(mn.toFixed(prec), W-RIGHT+4, H-2);
+    }
+    ctx.globalAlpha=1;
+  });
+
+  if (S.cursor!==null) {
+    const cx=LEFT+((S.cursor-t0)/(t1-t0))*CW;
+    if (cx>=LEFT&&cx<=W-RIGHT) {
+      ctx.strokeStyle='rgba(255,255,255,.3)'; ctx.lineWidth=1;
+      ctx.setLineDash([3,3]);
+      ctx.beginPath(); ctx.moveTo(cx,0); ctx.lineTo(cx,H); ctx.stroke();
+      ctx.setLineDash([]);
+    }
+  }
+
+  if (brushT0!==null&&brushT1!==null) {
+    const bx0=LEFT+((Math.min(brushT0,brushT1)-t0)/(t1-t0))*CW;
+    const bx1=LEFT+((Math.max(brushT0,brushT1)-t0)/(t1-t0))*CW;
+    const rx=Math.max(LEFT,bx0), rw=Math.min(W,bx1)-rx;
+    if (rw>0) {
+      ctx.fillStyle='rgba(88,166,255,0.12)'; ctx.fillRect(rx,0,rw,H);
+      ctx.strokeStyle='rgba(88,166,255,0.6)'; ctx.lineWidth=1; ctx.setLineDash([]);
+      ctx.strokeRect(rx,0,rw,H);
+    }
+  }
+}
+
+function updateChips() {
+  if (S.cursor===null) return;
+  const t=S.data[S.timeKey], idx=Math.min(loBound(t,S.cursor), t.length-1);
+  S.panels.forEach(p => {
+    p.chips.forEach((chip,ci) => {
+      const key=p.keys[ci];
+      if (!(key in S.data)) return;
+      chip.valEl.textContent=fmtVal(S.data[key][idx], S.meta[key]);
+    });
+  });
+}
+
+let _statsTimer = null;
+function updateStats() {
+  const t = S.data[S.timeKey];
+  const iA = loBound(t, S.view.t0);
+  const iB = Math.min(hiBound(t, S.view.t1), t.length-1);
+  buildFieldStats(iA, iB);
+}
+
+function renderAll() {
+  S.panels.forEach(drawPanel); updateChips(); drawOverview();
+  clearTimeout(_statsTimer);
+  _statsTimer = setTimeout(updateStats, 120);
+}
+
+// ── Interaction ─────────────────────────────────────────────────────────────
+function clampView(t0, t1) {
+  const t=S.data[S.timeKey], tMin=t[0], tMax=t[t.length-1];
+  const span=Math.max(t1-t0, (tMax-tMin)*0.0005);
+  let a=t0, b=t0+span;
+  if (a<tMin){a=tMin; b=tMin+span;}
+  if (b>tMax){b=tMax; a=tMax-span;}
+  return {t0:a, t1:b};
+}
+
+function clientXtoTime(clientX, canvas) {
+  const r=canvas.getBoundingClientRect();
+  const chartX=(clientX-r.left)-LEFT;
+  const frac=Math.max(0,Math.min(1,chartX/(r.width-LEFT-RIGHT)));
+  return S.view.t0+frac*(S.view.t1-S.view.t0);
+}
+
+function attachInteraction(canvas) {
+  let drag=null, pinch=null;
+  const pdist=ta=>{const dx=ta[0].clientX-ta[1].clientX,dy=ta[0].clientY-ta[1].clientY;return Math.sqrt(dx*dx+dy*dy);};
+  const pmid=ta=>(ta[0].clientX+ta[1].clientX)/2;
+
+  function pan(dx) {
+    const dt=-(dx/(canvas.clientWidth-LEFT-RIGHT))*(S.view.t1-S.view.t0);
+    S.view=clampView(S.view.t0+dt,S.view.t1+dt);
+  }
+  function zoom(factor,pivotX) {
+    const r=canvas.getBoundingClientRect();
+    const frac=Math.max(0,Math.min(1,(pivotX-r.left-LEFT)/(r.width-LEFT-RIGHT)));
+    const {t0,t1}=S.view,pivot=t0+frac*(t1-t0),span=(t1-t0)*factor;
+    S.view=clampView(pivot-frac*span,pivot+(1-frac)*span);
+  }
+  function commitBrush() {
+    if (brushT0!==null&&brushT1!==null) {
+      const a=Math.min(brushT0,brushT1),b=Math.max(brushT0,brushT1);
+      if (b-a>0.5) S.view=clampView(a,b);
+    }
+    brushT0=null; brushT1=null; scheduleRender();
+  }
+
+  canvas.addEventListener('touchstart',e=>{
+    e.preventDefault();
+    if (e.touches.length===1) {
+      if (brushMode) { brushT0=clientXtoTime(e.touches[0].clientX,canvas); brushT1=brushT0; }
+      else { drag={x:e.touches[0].clientX}; S.cursor=clientXtoTime(e.touches[0].clientX,canvas); }
+      scheduleRender();
+    } else if (e.touches.length===2) { drag=null; brushT0=null; brushT1=null; pinch={dist:pdist(e.touches),mid:pmid(e.touches)}; }
+  },{passive:false});
+
+  canvas.addEventListener('touchmove',e=>{
+    e.preventDefault();
+    if (e.touches.length===1) {
+      if (brushMode&&brushT0!==null) { brushT1=clientXtoTime(e.touches[0].clientX,canvas); scheduleRender(); }
+      else if (drag) { pan(e.touches[0].clientX-drag.x); drag.x=e.touches[0].clientX; S.cursor=clientXtoTime(e.touches[0].clientX,canvas); scheduleRender(); }
+    } else if (e.touches.length===2&&pinch) {
+      const nd=pdist(e.touches),nm=pmid(e.touches); zoom(pinch.dist/nd,nm); pinch.dist=nd; scheduleRender();
+    }
+  },{passive:false});
+
+  canvas.addEventListener('touchend',e=>{
+    if (e.touches.length<1) { if (brushMode) commitBrush(); drag=null; }
+    if (e.touches.length<2) pinch=null;
+  });
+
+  let mdown=false;
+  canvas.addEventListener('mousedown',e=>{
+    mdown=true;
+    if (brushMode) { brushT0=clientXtoTime(e.clientX,canvas); brushT1=brushT0; }
+    else { S.cursor=clientXtoTime(e.clientX,canvas); }
+    scheduleRender();
+  });
+  canvas.addEventListener('mousemove',e=>{
+    if (brushMode) { if (mdown) { brushT1=clientXtoTime(e.clientX,canvas); scheduleRender(); } canvas.style.cursor='crosshair'; }
+    else { if (mdown) pan(-e.movementX); S.cursor=clientXtoTime(e.clientX,canvas); canvas.style.cursor=''; scheduleRender(); }
+  });
+  canvas.addEventListener('mouseup',()=>{ mdown=false; if (brushMode) commitBrush(); });
+  canvas.addEventListener('mouseleave',()=>{ mdown=false; });
+  canvas.addEventListener('wheel',e=>{
+    e.preventDefault(); zoom(e.deltaY>0?1.15:1/1.15,e.clientX); scheduleRender();
+  },{passive:false});
+}
+
+function resetZoom() {
+  const t=S.data[S.timeKey];
+  S.view={t0:t[0],t1:t[t.length-1]}; S.cursor=null;
+  brushT0=null; brushT1=null; scheduleRender();
+}
+
+// ── Field stats table ────────────────────────────────────────────────────────
+const FSTAT_FIELDS = [
+  { key: 'kmh_vesc',       label: 'VESC Speed'  },
+  { key: 'kmh_cal',        label: 'Speed (cal)' },
+  { key: 'gnss_h_vel',     label: 'GPS Speed'   },
+  { key: 'Current',        label: 'Current'     },
+  { key: 'Current In',     label: 'Batt Current'},
+  { key: 'Input Voltage',  label: 'Voltage'     },
+  { key: 'Temp Fet',       label: 'Temp FET'    },
+  { key: 'Temp Motor',     label: 'Temp Motor'  },
+  { key: 'Batt',           label: 'Battery'     },
+  { key: 'cnt_wh',         label: 'Wh Used'     },
+];
+
+function buildFieldStats(iA, iB) {
+  const el = document.getElementById('fieldStats');
+  if (!el || !S.data) return;
+  const {data, timeKey} = S;
+  const t = data[timeKey];
+  if (iA === undefined) { iA = 0; iB = t.length - 1; }
+
+  // Summary rows (single computed values)
+  const sumRows = [];
+  const dur = t[iB] - t[iA];
+  sumRows.push(['Duration', fmtDur(dur)]);
+
+  const dk = ['trip_vesc_abs','trip_gnss','trip_vesc'].find(k=>k in data);
+  if (dk) {
+    const d=data[dk]; let first=NaN,last=NaN;
+    for(let i=iA;i<=iB;i++){if(isFinite(d[i])){if(!isFinite(first))first=d[i];last=d[i];}}
+    const dist=Math.abs(last-first);
+    sumRows.push(['Distance', isFinite(dist)?(dist>=1000?(dist/1000).toFixed(2)+' km':Math.round(dist)+' m'):'—']);
+    if ('cnt_wh' in data) {
+      const w=data.cnt_wh; let wf=NaN,wl=NaN;
+      for(let i=iA;i<=iB;i++){if(isFinite(w[i])){if(!isFinite(wf))wf=w[i];wl=w[i];}}
+      const wh=Math.abs(wl-wf);
+      sumRows.push(['Energy', isFinite(wh)?wh.toFixed(1)+' Wh':'—']);
+      if(isFinite(dist)&&dist>100&&isFinite(wh)&&wh>0)
+        sumRows.push(['Efficiency', (wh/(dist/1000)).toFixed(1)+' Wh/km']);
+    }
+  }
+  sumRows.push(['Samples', (iB-iA+1).toLocaleString()]);
+
+  const sumHtml = sumRows.map(([label,val])=>
+    `<tr class="sumrow"><td>${label}</td><td colspan="3" class="sv" style="text-align:right">${val}</td></tr>`
+  ).join('');
+
+  // Field rows
+  const fieldRows = FSTAT_FIELDS.filter(({key})=>key in data).map(({key,label})=>{
+    const arr=data[key], m=S.meta[key];
+    const prec=Math.min(m.precision,2), unit=m.unit?' '+m.unit:'';
+    let mn=Infinity,mx=-Infinity,sum=0,cnt=0;
+    for(let i=iA;i<=iB;i++){const v=arr[i];if(!isFinite(v))continue;if(v<mn)mn=v;if(v>mx)mx=v;sum+=v;cnt++;}
+    const avg=cnt>0?sum/cnt:NaN;
+    const fmt=v=>isFinite(v)?v.toFixed(prec)+unit:'—';
+    return `<tr><td>${label}</td><td>${fmt(mn)}</td><td>${fmt(mx)}</td><td>${fmt(avg)}</td></tr>`;
+  }).join('');
+
+  if (!fieldRows&&!sumHtml) { el.innerHTML=''; return; }
+  el.innerHTML =
+    `<table class="fst"><thead><tr><th>Field</th><th>Min</th><th>Max</th><th>Avg</th></tr></thead>` +
+    `<tbody>${sumHtml}${fieldRows}</tbody></table>`;
+}
+
+// ── Overview bar ────────────────────────────────────────────────────────────
+function drawOverview() {
+  const cv=document.getElementById('overviewCanvas');
+  if (!cv||!S.data||!S.timeKey) return;
+  const ctx=cv.getContext('2d');
+  const dpr=devicePixelRatio||1, W=cv.clientWidth, H=cv.clientHeight;
+  if (cv.width!==Math.round(W*dpr)||cv.height!==Math.round(H*dpr)) {
+    cv.width=Math.round(W*dpr); cv.height=Math.round(H*dpr);
+  }
+  ctx.resetTransform(); ctx.scale(dpr,dpr);
+
+  const t=S.data[S.timeKey];
+  const tMin=firstFinite(t), tMax=lastFinite(t);
+
+  ctx.fillStyle='#0d1117'; ctx.fillRect(0,0,W,H);
+
+  const sparkKey=['kmh_vesc','gnss_h_vel','Current','Input Voltage'].find(k=>k in S.data);
+  if (sparkKey) {
+    const arr=S.data[sparkKey];
+    let mn=Infinity,mx=-Infinity;
+    arr.forEach(v=>{if(isFinite(v)){mn=Math.min(mn,v);mx=Math.max(mx,v);}});
+    if (mn<mx) {
+      ctx.beginPath(); ctx.strokeStyle='#2d3748'; ctx.lineWidth=1;
+      let first=true;
+      for (let i=0;i<t.length;i++) {
+        if (!isFinite(arr[i])||!isFinite(t[i])) continue;
+        const x=(t[i]-tMin)/(tMax-tMin)*W;
+        const y=H-2-(arr[i]-mn)/(mx-mn)*(H-4);
+        first?(ctx.moveTo(x,y),first=false):ctx.lineTo(x,y);
+      }
+      ctx.stroke();
+    }
+  }
+
+  const vx0=(S.view.t0-tMin)/(tMax-tMin)*W;
+  const vx1=(S.view.t1-tMin)/(tMax-tMin)*W;
+  ctx.fillStyle='rgba(0,0,0,0.55)';
+  ctx.fillRect(0,0,vx0,H); ctx.fillRect(vx1,0,W-vx1,H);
+  ctx.strokeStyle='#58a6ff'; ctx.lineWidth=1.5;
+  ctx.strokeRect(vx0+0.75,0.75,vx1-vx0-1.5,H-1.5);
+  ctx.fillStyle='#58a6ff';
+  ctx.fillRect(vx0-1,0,2,H); ctx.fillRect(vx1-1,0,2,H);
+}
+
+function attachOverviewInteraction(canvas) {
+  const EDGE=18;
+  let dtype=null, startX=null;
+
+  function getVP() {
+    const t=S.data[S.timeKey], tMin=firstFinite(t), tMax=lastFinite(t), W=canvas.clientWidth;
+    return {x0:(S.view.t0-tMin)/(tMax-tMin)*W, x1:(S.view.t1-tMin)/(tMax-tMin)*W, tMin, tMax, W};
+  }
+  function toTime(clientX) {
+    const r=canvas.getBoundingClientRect(), {tMin,tMax}=getVP();
+    return tMin+Math.max(0,Math.min(1,(clientX-r.left)/r.width))*(tMax-tMin);
+  }
+  function hitTest(clientX) {
+    const r=canvas.getBoundingClientRect(), x=clientX-r.left, {x0,x1}=getVP();
+    if (Math.abs(x-x0)<EDGE) return 'left';
+    if (Math.abs(x-x1)<EDGE) return 'right';
+    if (x>x0&&x<x1) return 'move';
+    return 'outside';
+  }
+  function applyDrag(clientX) {
+    if (!dtype||startX===null) return;
+    const dx=clientX-startX; startX=clientX;
+    const {tMin,tMax,W}=getVP(), dt=dx/W*(tMax-tMin);
+    if (dtype==='move') S.view=clampView(S.view.t0+dt,S.view.t1+dt);
+    else if (dtype==='left') S.view=clampView(S.view.t0+dt,S.view.t1);
+    else if (dtype==='right') S.view=clampView(S.view.t0,S.view.t1+dt);
+    scheduleRender();
+  }
+  function startDrag(clientX) {
+    const ht=hitTest(clientX);
+    if (ht==='outside') {
+      const tc=toTime(clientX), span=S.view.t1-S.view.t0;
+      S.view=clampView(tc-span/2,tc+span/2); scheduleRender();
+    } else { dtype=ht; startX=clientX; }
+  }
+
+  canvas.addEventListener('mousedown',e=>startDrag(e.clientX));
+  canvas.addEventListener('mousemove',e=>{
+    if (dtype){applyDrag(e.clientX);return;}
+    const ht=hitTest(e.clientX);
+    canvas.style.cursor=(ht==='left'||ht==='right')?'ew-resize':(ht==='move'?'grab':'crosshair');
+  });
+  canvas.addEventListener('mouseup',()=>{dtype=null;});
+  canvas.addEventListener('mouseleave',()=>{dtype=null;});
+  canvas.addEventListener('touchstart',e=>{e.preventDefault();startDrag(e.touches[0].clientX);},{passive:false});
+  canvas.addEventListener('touchmove',e=>{e.preventDefault();applyDrag(e.touches[0].clientX);},{passive:false});
+  canvas.addEventListener('touchend',()=>{dtype=null;});
+}
+
+// ── GPS track ───────────────────────────────────────────────────────────────
+let m_map = null;
+
+function loadLeaflet(cb) {
+  if (window.L) { cb(); return; }
+  const link = document.createElement('link');
+  link.rel = 'stylesheet';
+  link.href = 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.css';
+  document.head.appendChild(link);
+  const sc = document.createElement('script');
+  sc.src = 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.js';
+  sc.onload = cb;
+  sc.onerror = () => { document.getElementById('gpsMap').textContent = 'Map unavailable (no internet)'; };
+  document.head.appendChild(sc);
+}
+
+function buildGps() {
+  const {data}=S;
+  if (!('gnss_lat' in data&&'gnss_lon' in data)) return;
+  const lat=data.gnss_lat, lon=data.gnss_lon;
+  const hacc = ('gnss_h_acc' in data) ? data.gnss_h_acc : null;
+  const pts=[];
+  for (let i=0;i<lat.length;i++) {
+    if (!isFinite(lat[i])||!isFinite(lon[i])||(lat[i]===0&&lon[i]===0)) continue;
+    // reject points with no fix (h_acc=0) or poor fix (h_acc>100m)
+    if (hacc) {
+      const a=hacc[i];
+      if (!isFinite(a)||a<=0||a>100) continue;
+    }
+    pts.push({lat:lat[i],lon:lon[i],i});
+  }
+  if (pts.length<2) return;
+  document.getElementById('gpsWrap').style.display='block';
+  loadLeaflet(()=>buildGpsMap(pts));
+}
+
+function buildGpsMap(pts) {
+  const {data}=S;
+  if (m_map) { m_map.remove(); m_map=null; }
+
+  const mapEl=document.getElementById('gpsMap');
+  m_map=L.map(mapEl,{zoomControl:true});
+  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{
+    attribution:'© <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
+    maxZoom:19
+  }).addTo(m_map);
+
+  const spdArr=('gnss_h_vel' in data)?data.gnss_h_vel:('kmh_vesc' in data?data.kmh_vesc:null);
+  let maxSpd=0;
+  if (spdArr) pts.forEach(p=>{const v=spdArr[p.i];if(isFinite(v)&&v>maxSpd)maxSpd=v;});
+
+  function spdColor(v) {
+    if (!spdArr||maxSpd===0||!isFinite(v)) return '#58a6ff';
+    const s=Math.min(v/maxSpd,1);
+    const r=Math.round(s>.5?255:s*2*255);
+    const g=Math.round(s<.5?s*2*200:(1-s)*2*200);
+    const b=Math.round(s<.5?255*(1-s*1.5):0);
+    return `rgb(${r},${g},${b})`;
+  }
+
+  // Group into speed-bucket segments to limit polyline count
+  const BUCKETS=12;
+  function bucket(v){return spdArr&&maxSpd>0&&isFinite(v)?Math.min(BUCKETS-1,Math.floor(v/maxSpd*BUCKETS)):0;}
+
+  let segPts=[[pts[0].lat,pts[0].lon]];
+  let segBucket=bucket(spdArr?spdArr[pts[0].i]:0);
+
+  for (let j=1;j<pts.length;j++) {
+    const b=bucket(spdArr?spdArr[pts[j].i]:0);
+    if (b!==segBucket) {
+      segPts.push([pts[j].lat,pts[j].lon]);
+      L.polyline(segPts,{color:spdColor(spdArr?spdArr[pts[j-1].i]:0),weight:4,opacity:0.9,lineJoin:'round'}).addTo(m_map);
+      segBucket=b;
+      segPts=[[pts[j-1].lat,pts[j-1].lon],[pts[j].lat,pts[j].lon]];
+    } else {
+      segPts.push([pts[j].lat,pts[j].lon]);
+    }
+  }
+  if (segPts.length>1)
+    L.polyline(segPts,{color:spdColor(spdArr?spdArr[pts[pts.length-1].i]:0),weight:4,opacity:0.9,lineJoin:'round'}).addTo(m_map);
+
+  const mkr=(p,color,label)=>L.circleMarker([p.lat,p.lon],
+    {radius:7,fillColor:color,fillOpacity:1,color:'#fff',weight:2}).bindPopup(label).addTo(m_map);
+  mkr(pts[0],'#56d364','Start');
+  mkr(pts[pts.length-1],'#f78166','End');
+
+  let latMin=Infinity,latMax=-Infinity,lonMin=Infinity,lonMax=-Infinity;
+  pts.forEach(p=>{if(p.lat<latMin)latMin=p.lat;if(p.lat>latMax)latMax=p.lat;if(p.lon<lonMin)lonMin=p.lon;if(p.lon>lonMax)lonMax=p.lon;});
+  m_map.fitBounds([[latMin,lonMin],[latMax,lonMax]],{padding:[24,24]});
+  setTimeout(()=>m_map&&m_map.invalidateSize(),100);
+}
+
+// ── Build app ───────────────────────────────────────────────────────────────
+function buildApp() {
+  const {data,meta}=S;
+  const panelsEl=document.getElementById('panels');
+  panelsEl.innerHTML=''; S.panels=[];
+
+  PANEL_DEFS.forEach(def => {
+    const keys=def.keys.filter(k=>k in data);
+    if (!keys.length) return;
+    const div=document.createElement('div'); div.className='panel';
+    const head=document.createElement('div'); head.className='panel-head';
+    const titleEl=document.createElement('span'); titleEl.className='panel-title'; titleEl.textContent=def.title;
+    head.appendChild(titleEl);
+    const chips=[];
+    keys.forEach((key,ci) => {
+      const color=COLORS[ci%COLORS.length], m=meta[key];
+      const chip=document.createElement('span'); chip.className='series-chip';
+      chip.innerHTML=`<span class="series-dot" style="background:${color}"></span><span class="series-name">${m.name}${m.unit?' ('+m.unit+')':''}&thinsp;</span><span class="series-val">—</span>`;
+      head.appendChild(chip);
+      chips.push({chip, valEl:chip.querySelector('.series-val')});
+    });
+    div.appendChild(head);
+    const cv=document.createElement('canvas'); cv.className='panel-canvas';
+    div.appendChild(cv); panelsEl.appendChild(div);
+    const p={canvas:cv,keys,chips};
+    S.panels.push(p); attachInteraction(cv);
+  });
+
+  buildGps();
+  const ovCv=document.getElementById('overviewCanvas');
+  if (ovCv) attachOverviewInteraction(ovCv);
+  scheduleRender();
+}
+
+// ── Core load ───────────────────────────────────────────────────────────────
+function applySpeedFilter(data, timeKey) {
+  const minSpd = parseFloat(localStorage.getItem('vesclog_minspd')) || 0;
+  if (minSpd <= 0) return { data, removed: 0 };
+  const spdKey = ['kmh_vesc','gnss_h_vel'].find(k=>k in data);
+  if (!spdKey) return { data, removed: 0 };
+  const spd = data[spdKey], t = data[timeKey];
+  const keep = [];
+  for (let i = 0; i < t.length; i++) {
+    if (isFinite(spd[i]) && Math.abs(spd[i]) >= minSpd) keep.push(i);
+  }
+  if (keep.length === t.length) return { data, removed: 0 };
+  const out = {};
+  Object.keys(data).forEach(k => {
+    const a = new Float64Array(keep.length);
+    keep.forEach((si,di) => a[di] = data[k][si]);
+    out[k] = a;
+  });
+  return { data: out, removed: t.length - keep.length };
+}
+
+function loadText(name, text) {
+  let parsed;
+  try { parsed=parseVescCsv(text); } catch(e) { alert('Parse error: '+e.message); return; }
+  let {data,meta,timeKey}=parsed;
+  if (!timeKey) { alert('No timestamp field found.'); return; }
+  const {data: fdata, removed} = applySpeedFilter(data, timeKey);
+  data = fdata;
+  const t=data[timeKey];
+  if (t.length<2) { alert('Too few samples.'); return; }
+  const filterNote = removed > 0 ? ` (${removed.toLocaleString()} stationary rows filtered)` : '';
+
+  S={data,meta,timeKey,view:{t0:t[0],t1:t[t.length-1]},cursor:null,panels:[],fileName:name,rawText:text};
+  if (filterNote) console.log('vesclog:', filterNote);
+  const _sc=localStorage.getItem('vesclog_circ'), _sg=localStorage.getItem('vesclog_gear');
+  const _sm=localStorage.getItem('vesclog_minspd');
+  if (_sc) { document.getElementById('setCirc').value=_sc; document.getElementById('setGear').value=_sg||'1'; }
+  if (_sm) document.getElementById('setMinSpd').value=_sm;
+  cleanGpsFields();
+  computeCorrectedSpeed();
+  document.getElementById('fileName').textContent=name;
+  document.getElementById('downloadBtn').style.display='';
+  document.getElementById('exportBtn').style.display='';
+  document.getElementById('settingsBtn').style.display='';
+  document.getElementById('landing').style.display='none';
+  document.getElementById('gpsWrap').style.display='none';
+  document.getElementById('app').style.display='block';
+  buildApp();
+}
+
+function loadFile(file) {
+  const r=new FileReader();
+  r.onload=e=>loadText(file.name, e.target.result);
+  r.readAsText(file);
+}
+
+// ── Device log fetch ────────────────────────────────────────────────────────
+function fetchLogList() {
+  fetch('/api/logs')
+    .then(r => { if (!r.ok) throw new Error(r.status); return r.json(); })
+    .then(logs => {
+      logs.sort((a,b) => b.name.localeCompare(a.name));
+      const el=document.getElementById('logList');
+      if (!logs.length) { el.innerHTML='<div class="placeholder">No logs on device</div>'; return; }
+      el.innerHTML=logs.map(l => {
+        const cached = !!sessionStorage.getItem('vesclog:'+l.name+':'+l.size);
+        const n = JSON.stringify(l.name);
+        return `<div class="log-entry">` +
+          `<span class="log-name" onclick='loadFromDevice(${n},${l.size})'>${l.name}</span>` +
+          `<span class="log-actions">` +
+          `<span class="log-meta">${cached?'★ ':' '}${fmtSize(l.size)}</span>` +
+          `<button class="log-btn" title="Trim idle rows" onclick='trimLog(${n})'>✂</button>` +
+          `<button class="log-btn danger" title="Delete" onclick='deleteLog(${n})'>✕</button>` +
+          `</span></div>`;
+      }).join('');
+    })
+    .catch(() => {
+      document.getElementById('logList').innerHTML='<div class="placeholder">Could not reach device</div>';
+    });
+}
+
+document.getElementById('updateFileInput').addEventListener('change', function(e) {
+  const file = e.target.files[0];
+  if (!file) return;
+  const status = document.getElementById('updateStatus');
+  status.textContent = 'Uploading…';
+  fetch('/update', { method: 'POST', body: file,
+    headers: { 'Content-Type': 'text/html', 'Content-Length': file.size } })
+    .then(r => r.json())
+    .then(d => {
+      if (d.ok) { status.textContent = 'Done — reloading…'; setTimeout(() => location.reload(), 800); }
+      else { status.textContent = 'Error: ' + JSON.stringify(d); }
+    })
+    .catch(err => { status.textContent = 'Failed: ' + err; });
+  e.target.value = '';
+});
+
+function trimLog(name) {
+  if (!confirm('Trim idle rows (< 0.5 km/h) from "' + name + '" on device?\nThis modifies the file.')) return;
+  const el = document.getElementById('logList');
+  el.innerHTML = '<div class="placeholder">Trimming… this may take a moment for large files.</div>';
+  fetch('/api/trim/' + encodeURIComponent(name), {method:'POST'})
+    .then(r => r.json())
+    .then(d => {
+      if (d.ok) {
+        el.innerHTML = `<div class="placeholder">Done — ${d.before.toLocaleString()} → ${d.after.toLocaleString()} rows saved</div>`;
+        // invalidate cache for this file
+        Object.keys(sessionStorage).filter(k=>k.startsWith('vesclog:'+name+':')).forEach(k=>sessionStorage.removeItem(k));
+      } else {
+        el.innerHTML = '<div class="placeholder">Trim failed</div>';
+      }
+      setTimeout(fetchLogList, 1800);
+    })
+    .catch(e => { el.innerHTML = '<div class="placeholder">Error: '+e+'</div>'; setTimeout(fetchLogList, 2000); });
+}
+
+function deleteLog(name) {
+  if (!confirm('Delete "' + name + '" from device?')) return;
+  fetch('/api/delete/' + encodeURIComponent(name), {method:'POST'})
+    .then(r => r.json())
+    .then(d => {
+      if (d.ok) {
+        Object.keys(sessionStorage).filter(k=>k.startsWith('vesclog:'+name+':')).forEach(k=>sessionStorage.removeItem(k));
+        fetchLogList();
+      } else { alert('Delete failed'); }
+    })
+    .catch(e => alert('Error: '+e));
+}
+
+function loadFromDevice(name, size) {
+  const cacheKey = 'vesclog:'+name+':'+size;
+  try {
+    const cached = sessionStorage.getItem(cacheKey);
+    if (cached) { loadText(name, cached); return; }
+  } catch(e) {}
+
+  const overlay = document.getElementById('loadingOverlay');
+  const list    = document.getElementById('logList');
+  const fill    = document.getElementById('progressFill');
+  const label   = document.getElementById('loadingLabel');
+  const bytes   = document.getElementById('loadingBytes');
+
+  overlay.classList.add('active');
+  list.style.display = 'none';
+  label.textContent  = name;
+  fill.style.width   = '0%';
+  bytes.textContent  = '0 B / ' + fmtSize(size);
+
+  fetch('/api/logs/'+encodeURIComponent(name))
+    .then(r => {
+      if (!r.ok) throw new Error(r.status);
+      const reader  = r.body.getReader();
+      const chunks  = [];
+      let received  = 0;
+      function pump() {
+        return reader.read().then(({done, value}) => {
+          if (done) {
+            const combined = new Uint8Array(received);
+            let off = 0;
+            for (const c of chunks) { combined.set(c, off); off += c.length; }
+            const text = new TextDecoder().decode(combined);
+            try { sessionStorage.setItem(cacheKey, text); } catch(e) {}
+            overlay.classList.remove('active');
+            list.style.display = '';
+            loadText(name, text);
+            return;
+          }
+          chunks.push(value);
+          received += value.length;
+          if (size > 0) fill.style.width = Math.min(100, received/size*100).toFixed(1)+'%';
+          bytes.textContent = fmtSize(received) + (size ? ' / '+fmtSize(size) : '');
+          return pump();
+        });
+      }
+      return pump();
+    })
+    .catch(e => {
+      overlay.classList.remove('active');
+      list.style.display = '';
+      alert('Failed to load '+name+': '+e);
+    });
+}
+
+// ── Init ────────────────────────────────────────────────────────────────────
+function toggleSettings() {
+  const p = document.getElementById('settingsPanel');
+  p.classList.toggle('open');
+  if (!p.classList.contains('open') || !S.data || !('RPM' in S.data) || !('kmh_vesc' in S.data)) return;
+  const rpm = S.data.RPM, spd = S.data.kmh_vesc;
+  const samples = [];
+  for (let i = 0; i < rpm.length; i++) {
+    if (Math.abs(rpm[i]) > 50 && isFinite(spd[i]) && spd[i] > 1)
+      samples.push(spd[i] / Math.abs(rpm[i]) / 0.06 * 1000);
+  }
+  const hint = document.getElementById('setHint');
+  if (samples.length > 10) {
+    samples.sort((a,b)=>a-b);
+    hint.textContent = 'VESC implies ~' + samples[Math.floor(samples.length/2)].toFixed(0) + ' mm';
+  } else {
+    hint.textContent = 'Not enough motion data to detect';
+  }
+}
+
+function cleanGpsFields() {
+  if (!S.data || !('gnss_h_acc' in S.data)) return;
+  const hacc = S.data.gnss_h_acc;
+  const targets = ['gnss_h_vel','gnss_lat','gnss_lon','gnss_alt'].filter(k=>k in S.data);
+  for (let i=0; i<hacc.length; i++) {
+    const a=hacc[i];
+    if (!isFinite(a)||a<=0||a>100) {
+      targets.forEach(k=>{ S.data[k][i]=NaN; });
+    }
+  }
+}
+
+function computeCorrectedSpeed() {
+  if (!S.data || !('RPM' in S.data)) return;
+  const circ = parseFloat(localStorage.getItem('vesclog_circ')) || 0;
+  if (circ <= 0) { delete S.data.kmh_cal; return; }
+  const gear = parseFloat(localStorage.getItem('vesclog_gear')) || 1.0;
+  const circ_m = circ / 1000;
+  const rpm = S.data.RPM;
+  const cal = new Float64Array(rpm.length);
+  for (let i = 0; i < rpm.length; i++)
+    cal[i] = isFinite(rpm[i]) ? Math.abs(rpm[i]) * circ_m * 0.06 / gear : NaN;
+  S.data.kmh_cal = cal;
+  S.meta.kmh_cal = { key:'kmh_cal', name:'Speed Cal', unit:'km/h', precision:2, isRelative:false, isTimestamp:false };
+}
+
+function applySettings() {
+  const circ   = parseFloat(document.getElementById('setCirc').value)   || 0;
+  const gear   = parseFloat(document.getElementById('setGear').value)   || 1.0;
+  const minSpd = parseFloat(document.getElementById('setMinSpd').value) || 0;
+  if (circ > 0) { localStorage.setItem('vesclog_circ', circ); localStorage.setItem('vesclog_gear', gear); }
+  if (minSpd > 0) localStorage.setItem('vesclog_minspd', minSpd);
+  else localStorage.removeItem('vesclog_minspd');
+  computeCorrectedSpeed();
+  document.getElementById('settingsPanel').classList.remove('open');
+  // Speed filter change requires reload of current file
+  alert('Reload the log file for filter changes to take effect.');
+}
+
+function clearSettings() {
+  localStorage.removeItem('vesclog_circ');
+  localStorage.removeItem('vesclog_gear');
+  localStorage.removeItem('vesclog_minspd');
+  document.getElementById('setCirc').value   = '';
+  document.getElementById('setGear').value   = '';
+  document.getElementById('setMinSpd').value = '';
+  computeCorrectedSpeed();
+  document.getElementById('settingsPanel').classList.remove('open');
+  if (S.data) buildApp();
+}
+
+function exportCharts() {
+  // Collect overview + all panel canvases in DOM order
+  const canvases = [document.getElementById('overviewCanvas'),
+    ...S.panels.map(p=>p.canvas)].filter(Boolean);
+  if (!canvases.length) return;
+
+  const dpr = devicePixelRatio || 1;
+  const totalH = canvases.reduce((s,c)=>s+c.clientHeight,0);
+  const W = canvases[0].clientWidth;
+
+  const out = document.createElement('canvas');
+  out.width  = Math.round(W * dpr);
+  out.height = Math.round(totalH * dpr);
+  const ctx  = out.getContext('2d');
+
+  // Dark background
+  ctx.fillStyle = '#0d1117';
+  ctx.fillRect(0, 0, out.width, out.height);
+
+  // Draw panel title + canvas for each panel
+  let y = 0;
+  canvases.forEach((cv, idx) => {
+    const h = Math.round(cv.clientHeight * dpr);
+    ctx.drawImage(cv, 0, y);
+    // Panel title label
+    if (idx > 0) {
+      const panel = S.panels[idx - 1];
+      if (panel) {
+        ctx.font = `bold ${10*dpr}px sans-serif`;
+        ctx.fillStyle = '#7d8590';
+        ctx.textBaseline = 'top';
+        ctx.fillText(panel.keys.map(k=>S.meta[k]&&S.meta[k].name||k).join(' / '), LEFT*dpr + 4*dpr, y + 2*dpr);
+      }
+    }
+    y += h;
+  });
+
+  out.toBlob(blob => {
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = (S.fileName||'vesclog').replace(/\.csv$/i,'') + '_charts.png';
+    document.body.appendChild(a); a.click(); document.body.removeChild(a);
+    setTimeout(()=>URL.revokeObjectURL(url), 1000);
+  }, 'image/png');
+}
+
+function downloadLog() {
+  if (!S.rawText || !S.fileName) return;
+  const blob = new Blob([S.rawText], {type:'text/csv'});
+  const url  = URL.createObjectURL(blob);
+  const a    = document.createElement('a');
+  a.href = url; a.download = S.fileName;
+  document.body.appendChild(a); a.click();
+  document.body.removeChild(a);
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+
+document.getElementById('fileInput').addEventListener('change', e => {
+  if (e.target.files.length) { loadFile(e.target.files[0]); e.target.value=''; }
+});
+
+const dz=document.getElementById('dropZone');
+dz.addEventListener('dragover',  e=>{e.preventDefault();dz.classList.add('over');});
+dz.addEventListener('dragleave', ()=>dz.classList.remove('over'));
+dz.addEventListener('drop', e=>{
+  e.preventDefault(); dz.classList.remove('over');
+  if (e.dataTransfer.files.length) loadFile(e.dataTransfer.files[0]);
+});
+
+// Back button: return to landing (device mode refreshes list)
+document.getElementById('backBtn').addEventListener('click', () => {
+  if (m_map) { m_map.remove(); m_map=null; }
+  document.getElementById('app').style.display='none';
+  document.getElementById('downloadBtn').style.display='none';
+  document.getElementById('exportBtn').style.display='none';
+  document.getElementById('settingsBtn').style.display='none';
+  document.getElementById('gpsWrap').style.display='none';
+  document.getElementById('landing').style.display='flex';
+  if (location.protocol!=='file:') fetchLogList();
+});
+
+// Device mode: auto-show log list
+if (location.protocol!=='file:') {
+  document.getElementById('deviceSection').style.display='block';
+  document.getElementById('divider').style.display='flex';
+  fetchLogList();
+  document.getElementById('updateSection').style.display = 'block';
+}
+
+window.addEventListener('resize', ()=>{ if (S.data) scheduleRender(); });
+</script>
+</body>
+</html>

@@ -20,6 +20,7 @@
     */
 
 #include "comm_wifi.h"
+#include "comm_http.h"
 #include "conf_general.h"
 #include "utils.h"
 #include "main.h"
@@ -397,13 +398,14 @@ void comm_wifi_event_handler(void* arg, esp_event_base_t event_base, int32_t eve
 		comm_wifi_disconnect();
 	} else if (event_base == IP_EVENT && event_id == IP_EVENT_STA_GOT_IP) {
 		STORED_LOGF("connected to network! (IP_EVENT_STA_GOT_IP)");
-		
+
 		ip_event_got_ip_t* event = (ip_event_got_ip_t*) event_data;
 		ip = event->ip_info.ip;
 		is_connecting = false;
 		is_connected = true;
 		LED_RED_ON();
 		xEventGroupSetBits(s_wifi_event_group, WIFI_CONNECTED_BIT);
+		comm_http_start();
 	}
 
 	if (event_listener != NULL) {
@@ -556,6 +558,10 @@ void comm_wifi_init(void) {
 	}
 
 	esp_wifi_start();
+
+	if (wifi_mode == WIFI_MODE_ACCESS_POINT) {
+		comm_http_start();
+	}
 
 	if (backup.config.use_tcp_local) {
 		comm_local.packet = calloc(1, sizeof(PACKET_STATE_t));

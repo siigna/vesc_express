@@ -29,6 +29,7 @@
 #include "comm_usb.h"
 #include "comm_can.h"
 #include "comm_wifi.h"
+#include "comm_http.h"
 #include "commands.h"
 #include "flash_helper.h"
 #include "crc.h"
@@ -181,6 +182,8 @@ void app_main(void) {
 	ublox_init(false, 500, UART_NUM, UART_RX, UART_TX);
 #endif
 #endif
+
+	comm_http_register_commands();
 
 	terminal_register_command_callback(
 			"nmea_info",

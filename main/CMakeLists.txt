@@ -9,6 +9,7 @@ set(COMPONENT_SRCS
 "comm_can.c"
 "comm_ble.c"
 "comm_wifi.c"
+"comm_http.c"
 "packet.c"
 "crc.c"
 "commands.c"
@@ -148,6 +149,8 @@ set(COMPONENT_ADD_INCLUDEDIRS
 "drivers/imu"
 "lowzip"
 )
+
+set(COMPONENT_EMBED_TXTFILES "vesclog.html")
 
 register_component()
 

@@ -18,6 +18,9 @@
  */
 
 #include "log.h"
+#include "main.h"
+#include "esp_timer.h"
+#include <math.h>
 #include "conf_general.h"
 #include "nmea.h"
 
@@ -76,6 +79,9 @@ static volatile float m_rate_hz = 10.0;
 static volatile bool m_append_time = false;
 static volatile bool m_append_gnss = false;
 static volatile bool m_append_gnss_time = false;
+
+static int64_t m_last_motion_ms = 0;
+static float   m_last_trip_val  = 0.0f;
 
 static void print_header(log_header *h, FILE *file) {
 	fprintf(file, "%s:%s:%s:%d:%d:%d",
@@ -221,6 +227,32 @@ static void log_task(void *arg) {
 		}
 
 		if (f_log) {
+			if (backup.config.vesclog_idle_suppress) {
+				/* Motion detection: scan for speed or trip field */
+				for (int i = 0; i < m_field_num; i++) {
+					log_header *h = (log_header*)&m_headers[i];
+					if (!h->updated) continue;
+					bool is_speed = (strncmp((char*)h->key, "kmh_vesc",      8) == 0 ||
+					                 strncmp((char*)h->key, "gnss_h_vel",    10) == 0 ||
+					                 strncmp((char*)h->key, "RPM",            3) == 0);
+					bool is_trip  =  strncmp((char*)h->key, "trip_vesc_abs", 13) == 0;
+					if (is_speed && fabsf(h->value) > (backup.config.vesclog_idle_speed_x10 / 10.0f)) {
+						m_last_motion_ms = esp_timer_get_time() / 1000;
+					}
+					if (is_trip && fabsf(h->value - m_last_trip_val) > 0.1f) {
+						m_last_trip_val  = h->value;
+						m_last_motion_ms = esp_timer_get_time() / 1000;
+					}
+				}
+
+				int64_t idle_ms = (esp_timer_get_time() / 1000) - m_last_motion_ms;
+				if (idle_ms > (int64_t)backup.config.vesclog_idle_timeout_s * 1000) {
+					for (int i = 0; i < m_field_num; i++)
+						((log_header*)&m_headers[i])->updated = false;
+					goto skip_write;
+				}
+			}
+
 			for (int i = 0;i < m_field_num;i++) {
 				log_header *h = (log_header*)&m_headers[i];
 				if (h->updated) {
@@ -284,6 +316,7 @@ static void log_task(void *arg) {
 				tick_last_fsync = xTaskGetTickCount();
 				fsync(fileno(f_log));
 			}
+			skip_write:;
 		}
 
 		if (m_rate_hz < 0.1) {

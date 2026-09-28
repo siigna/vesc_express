@@ -236,10 +236,10 @@ static void log_task(void *arg) {
 					                 strncmp((char*)h->key, "gnss_h_vel",    10) == 0 ||
 					                 strncmp((char*)h->key, "RPM",            3) == 0);
 					bool is_trip  =  strncmp((char*)h->key, "trip_vesc_abs", 13) == 0;
-					if (is_speed && fabsf(h->value) > (backup.config.vesclog_idle_speed_x10 / 10.0f)) {
+					if (is_speed && fabs(h->value) > (backup.config.vesclog_idle_speed_x10 / 10.0f)) {
 						m_last_motion_ms = esp_timer_get_time() / 1000;
 					}
-					if (is_trip && fabsf(h->value - m_last_trip_val) > 0.1f) {
+					if (is_trip && fabs(h->value - m_last_trip_val) > 0.1f) {
 						m_last_trip_val  = h->value;
 						m_last_motion_ms = esp_timer_get_time() / 1000;
 					}

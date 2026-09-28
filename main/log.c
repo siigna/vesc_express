@@ -549,6 +549,45 @@ bool log_init(void) {
 	return true;
 }
 
+/* Live telemetry accessors. m_field_num is non-zero only between COMM_LOG_START
+ * and COMM_LOG_STOP, which is exactly when the VESC is streaming field values
+ * to us over CAN — so it doubles as the "live data available" flag. */
+
+bool log_live_active(void) {
+	return m_field_num > 0;
+}
+
+int log_live_count(void) {
+	int n = m_field_num;
+	if (n < 0) return 0;
+	return n > LOG_MAX_FIELDS ? LOG_MAX_FIELDS : n;
+}
+
+float log_live_rate(void) {
+	return m_rate_hz;
+}
+
+bool log_live_get(int idx, log_live_field *out) {
+	if (!out || idx < 0 || idx >= log_live_count()) {
+		return false;
+	}
+
+	log_header *h = (log_header*)&m_headers[idx];
+	if (h->key[0] == '\0') {
+		return false;   /* configured count reached but this slot never filled */
+	}
+
+	strncpy(out->key, h->key, sizeof(out->key));
+	out->key[sizeof(out->key) - 1] = '\0';
+	strncpy(out->name, h->name, sizeof(out->name));
+	out->name[sizeof(out->name) - 1] = '\0';
+	strncpy(out->unit, h->unit, sizeof(out->unit));
+	out->unit[sizeof(out->unit) - 1] = '\0';
+	out->precision = h->precision;
+	out->value = h->value;
+	return true;
+}
+
 void log_process_packet(unsigned char *data, unsigned int len) {
 	COMM_PACKET_ID packet_id = data[0];
 	data++;

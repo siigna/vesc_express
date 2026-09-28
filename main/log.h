@@ -38,6 +38,23 @@ esp_err_t log_storage_info(size_t *total, size_t *used);
 #endif
 void log_process_packet(unsigned char *data, unsigned int len);
 
+// Live telemetry. While a log session is running the VESC pushes every field
+// over CAN continuously, so the current values are in memory regardless of
+// whether an SD card is present. This lets the HTTP server expose them without
+// reaching into log.c internals.
+typedef struct {
+	char key[25];
+	char name[30];
+	char unit[10];
+	int8_t precision;
+	double value;
+} log_live_field;
+
+bool  log_live_active(void);
+int   log_live_count(void);
+float log_live_rate(void);
+bool  log_live_get(int idx, log_live_field *out);
+
 // Global variables
 extern char *file_basepath;
 

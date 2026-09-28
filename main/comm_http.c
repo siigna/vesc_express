@@ -162,6 +162,68 @@ static esp_err_t update_handler(httpd_req_t *req) {
 	return ESP_OK;
 }
 
+static void json_escape(char *dst, size_t size, const char *src) {
+	size_t j = 0;
+	for (size_t i = 0; src[i] != '\0' && j + 2 < size; i++) {
+		unsigned char c = (unsigned char)src[i];
+		if (c == '"' || c == '\\') {
+			dst[j++] = '\\';
+			dst[j++] = (char)c;
+		} else if (c < 0x20) {
+			dst[j++] = ' ';
+		} else {
+			dst[j++] = (char)c;
+		}
+	}
+	dst[j] = '\0';
+}
+
+/* Current value of every logged field, for the live Ride dashboard. Streamed a
+ * field at a time so no large buffer is needed — heap is tight on the C3. */
+static esp_err_t api_live_handler(httpd_req_t *req) {
+	httpd_resp_set_type(req, "application/json");
+	httpd_resp_set_hdr(req, "Cache-Control", "no-store");
+
+	char head[80];
+	snprintf(head, sizeof(head), "{\"active\":%s,\"rate\":%.1f,\"fields\":[",
+	         log_live_active() ? "true" : "false", (double)log_live_rate());
+	httpd_resp_sendstr_chunk(req, head);
+
+	int n = log_live_count();
+	bool first = true;
+	for (int i = 0; i < n; i++) {
+		log_live_field f;
+		if (!log_live_get(i, &f)) continue;
+
+		char k[52], nm[62], u[22];
+		json_escape(k,  sizeof(k),  f.key);
+		json_escape(nm, sizeof(nm), f.name);
+		json_escape(u,  sizeof(u),  f.unit);
+
+		int prec = f.precision;
+		if (prec < 0) prec = 0;
+		if (prec > 6) prec = 6;
+
+		char chunk[220];
+		if (isfinite(f.value)) {
+			snprintf(chunk, sizeof(chunk),
+			         "%s{\"k\":\"%s\",\"n\":\"%s\",\"u\":\"%s\",\"p\":%d,\"v\":%.*f}",
+			         first ? "" : ",", k, nm, u, prec, prec, f.value);
+		} else {
+			/* printf would emit nan/inf, which is not valid JSON */
+			snprintf(chunk, sizeof(chunk),
+			         "%s{\"k\":\"%s\",\"n\":\"%s\",\"u\":\"%s\",\"p\":%d,\"v\":null}",
+			         first ? "" : ",", k, nm, u, prec);
+		}
+		httpd_resp_sendstr_chunk(req, chunk);
+		first = false;
+	}
+
+	httpd_resp_sendstr_chunk(req, "]}");
+	httpd_resp_sendstr_chunk(req, NULL);
+	return ESP_OK;
+}
+
 static esp_err_t api_logs_handler(httpd_req_t *req) {
 	char dir_path[80];
 	snprintf(dir_path, sizeof(dir_path), "%slog_can", file_basepath);
@@ -355,7 +417,7 @@ void comm_http_start(void) {
 	httpd_config_t cfg   = HTTPD_DEFAULT_CONFIG();
 	cfg.server_port      = backup.config.vesclog_http_port;
 	cfg.uri_match_fn     = httpd_uri_match_wildcard;
-	cfg.max_uri_handlers = 9;
+	cfg.max_uri_handlers = 10;
 
 	esp_err_t err = httpd_start(&m_server, &cfg);
 	if (err != ESP_OK) {
@@ -378,6 +440,9 @@ void comm_http_start(void) {
 	static const httpd_uri_t update_uri = {
 		.uri = "/update", .method = HTTP_POST, .handler = update_handler,
 	};
+	static const httpd_uri_t api_live_uri = {
+		.uri = "/api/live", .method = HTTP_GET, .handler = api_live_handler,
+	};
 	static const httpd_uri_t api_logs_uri = {
 		.uri = "/api/logs", .method = HTTP_GET, .handler = api_logs_handler,
 	};
@@ -396,6 +461,7 @@ void comm_http_start(void) {
 	httpd_register_uri_handler(m_server, &embedded_uri);
 	httpd_register_uri_handler(m_server, &export_uri);
 	httpd_register_uri_handler(m_server, &update_uri);
+	httpd_register_uri_handler(m_server, &api_live_uri);
 	httpd_register_uri_handler(m_server, &api_logs_uri);
 	httpd_register_uri_handler(m_server, &api_log_file_uri);
 	httpd_register_uri_handler(m_server, &api_delete_uri);

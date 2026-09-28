@@ -20,8 +20,11 @@
 static const char *TAG = "comm_http";
 static httpd_handle_t m_server = NULL;
 
-extern const char vesclog_html_start[] asm("_binary_vesclog_html_start");
-extern const char vesclog_html_end[]   asm("_binary_vesclog_html_end");
+/* The viewer is embedded pre-compressed: it is ~122 kB of HTML plus an inlined
+ * charting library, which does not fit the app partition uncompressed but
+ * gzips to ~42 kB. Browsers inflate it transparently via Content-Encoding. */
+extern const char vesclog_gz_start[] asm("_binary_vesclog_html_gz_start");
+extern const char vesclog_gz_end[]   asm("_binary_vesclog_html_gz_end");
 
 static void url_decode(const char *src, char *dst, size_t dst_len) {
 	size_t i = 0, j = 0;
@@ -40,89 +43,107 @@ static void url_decode(const char *src, char *dst, size_t dst_len) {
 	dst[j] = '\0';
 }
 
+/* Stream a file from the card. Returns false if it is not there, in which case
+ * nothing has been sent yet and the caller can fall through to another source. */
+static bool send_sd_file(httpd_req_t *req, const char *name, bool gzipped) {
+	char path[80];
+	snprintf(path, sizeof(path), "%s%s", file_basepath, name);
+
+	FILE *f = fopen(path, "r");
+	if (!f) return false;
+
+	if (gzipped) httpd_resp_set_hdr(req, "Content-Encoding", "gzip");
+
+	static char buf[2048];
+	size_t n;
+	while ((n = fread(buf, 1, sizeof(buf), f)) > 0)
+		httpd_resp_send_chunk(req, buf, (ssize_t)n);
+	fclose(f);
+	httpd_resp_send_chunk(req, NULL, 0);
+	return true;
+}
+
+static void send_embedded(httpd_req_t *req) {
+	httpd_resp_set_hdr(req, "Content-Encoding", "gzip");
+	httpd_resp_send(req, vesclog_gz_start,
+	                (ssize_t)(vesclog_gz_end - vesclog_gz_start));
+}
+
 static esp_err_t root_handler(httpd_req_t *req) {
 	httpd_resp_set_type(req, "text/html; charset=utf-8");
 	httpd_resp_set_hdr(req, "Cache-Control", "no-cache");
 
-	char sd_path[64];
-	snprintf(sd_path, sizeof(sd_path), "%svesclog.html", file_basepath);
+	/* A copy on the card always wins, so the viewer can be replaced in the
+	 * field without reflashing. Compressed first, then plain. */
+	if (send_sd_file(req, "vesclog.html.gz", true))  return ESP_OK;
+	if (send_sd_file(req, "vesclog.html",    false)) return ESP_OK;
 
-	FILE *f = fopen(sd_path, "r");
-	if (!f) {
-		/* Not on card — seed it from the embedded version */
-		FILE *wf = fopen(sd_path, "w");
-		if (wf) {
-			size_t elen = (size_t)(vesclog_html_end - vesclog_html_start);
-			fwrite(vesclog_html_start, 1, elen, wf);
-			fclose(wf);
-			f = fopen(sd_path, "r");
-		}
+	/* Nothing there yet — seed the card so /update has something to replace */
+	char path[80];
+	snprintf(path, sizeof(path), "%svesclog.html.gz", file_basepath);
+	FILE *wf = fopen(path, "w");
+	if (wf) {
+		fwrite(vesclog_gz_start, 1,
+		       (size_t)(vesclog_gz_end - vesclog_gz_start), wf);
+		fclose(wf);
 	}
-
-	if (f) {
-		static char buf[2048];
-		size_t n;
-		while ((n = fread(buf, 1, sizeof(buf), f)) > 0)
-			httpd_resp_send_chunk(req, buf, (ssize_t)n);
-		fclose(f);
-		httpd_resp_send_chunk(req, NULL, 0);
-	} else {
-		/* No SD card mounted — serve embedded fallback */
-		size_t len = (size_t)(vesclog_html_end - vesclog_html_start);
-		httpd_resp_send(req, vesclog_html_start, (ssize_t)len);
-	}
+	send_embedded(req);
 	return ESP_OK;
 }
 
 static esp_err_t embedded_handler(httpd_req_t *req) {
-	size_t len = (size_t)(vesclog_html_end - vesclog_html_start);
 	httpd_resp_set_type(req, "text/html; charset=utf-8");
 	httpd_resp_set_hdr(req, "Cache-Control", "no-cache");
-	httpd_resp_send(req, vesclog_html_start, (ssize_t)len);
+	send_embedded(req);
 	return ESP_OK;
 }
 
 static esp_err_t export_handler(httpd_req_t *req) {
 	httpd_resp_set_type(req, "text/html; charset=utf-8");
-	httpd_resp_set_hdr(req, "Content-Disposition", "attachment; filename=\"vesclog.html\"");
 	httpd_resp_set_hdr(req, "Cache-Control", "no-cache");
+	httpd_resp_set_hdr(req, "Content-Disposition", "attachment; filename=\"vesclog.html\"");
 
-	char sd_path[64];
-	snprintf(sd_path, sizeof(sd_path), "%svesclog.html", file_basepath);
-	FILE *f = fopen(sd_path, "r");
-	if (f) {
-		static char buf[2048];
-		size_t n;
-		while ((n = fread(buf, 1, sizeof(buf), f)) > 0)
-			httpd_resp_send_chunk(req, buf, (ssize_t)n);
-		fclose(f);
-		httpd_resp_send_chunk(req, NULL, 0);
-	} else {
-		size_t len = (size_t)(vesclog_html_end - vesclog_html_start);
-		httpd_resp_send(req, vesclog_html_start, (ssize_t)len);
-	}
+	/* Content-Encoding makes the browser inflate on the way in, so the user
+	 * gets a usable .html no matter how the viewer happens to be stored. */
+	if (send_sd_file(req, "vesclog.html.gz", true))  return ESP_OK;
+	if (send_sd_file(req, "vesclog.html",    false)) return ESP_OK;
+	send_embedded(req);
 	return ESP_OK;
 }
 
 static esp_err_t update_handler(httpd_req_t *req) {
-	if (req->content_len == 0 || req->content_len > 512 * 1024) {
+	if (req->content_len == 0 || req->content_len > 1024 * 1024) {
 		httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "Bad content length");
-		return ESP_OK;
-	}
-
-	char sd_path[64];
-	snprintf(sd_path, sizeof(sd_path), "%svesclog.html", file_basepath);
-
-	FILE *f = fopen(sd_path, "w");
-	if (!f) {
-		httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "Cannot write to SD card");
 		return ESP_OK;
 	}
 
 	char buf[512];
 	int remaining = (int)req->content_len;
+
+	/* Read the first chunk up front so the gzip magic tells us which name to
+	 * store it under — the uploader may hand us either form. */
+	int n = httpd_req_recv(req, buf, MIN((int)sizeof(buf), remaining));
+	if (n <= 0) {
+		httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "Receive error");
+		return ESP_OK;
+	}
+	bool is_gz = (n >= 2 && (unsigned char)buf[0] == 0x1f
+	                     && (unsigned char)buf[1] == 0x8b);
+
+	char keep[80], drop[80];
+	snprintf(keep, sizeof(keep), "%svesclog.html%s", file_basepath, is_gz ? ".gz" : "");
+	snprintf(drop, sizeof(drop), "%svesclog.html%s", file_basepath, is_gz ? "" : ".gz");
+
+	FILE *f = fopen(keep, "w");
+	if (!f) {
+		httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "Cannot write to SD card");
+		return ESP_OK;
+	}
+	fwrite(buf, 1, (size_t)n, f);
+	remaining -= n;
+
 	while (remaining > 0) {
-		int n = httpd_req_recv(req, buf, MIN((int)sizeof(buf), remaining));
+		n = httpd_req_recv(req, buf, MIN((int)sizeof(buf), remaining));
 		if (n <= 0) {
 			fclose(f);
 			httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "Receive error");
@@ -132,9 +153,12 @@ static esp_err_t update_handler(httpd_req_t *req) {
 		remaining -= n;
 	}
 	fclose(f);
+	unlink(drop);   /* exactly one copy, so precedence stays unambiguous */
 
+	char resp[96];
+	snprintf(resp, sizeof(resp), "{\"ok\":true,\"gzip\":%s}", is_gz ? "true" : "false");
 	httpd_resp_set_type(req, "application/json");
-	httpd_resp_sendstr(req, "{\"ok\":true}");
+	httpd_resp_sendstr(req, resp);
 	return ESP_OK;
 }
 

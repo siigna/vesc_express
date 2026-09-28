@@ -19,7 +19,13 @@ dependencies:
   espressif/esp_lcd_st7701:
     version: ^2.0.2
     rules:
-    - if: target == esp32p4
+    - if: target in [esp32p4, esp32s3]
+  ## 3-wire SPI panel IO, used to configure ST7701 registers when the pixel
+  ## data goes over a parallel RGB bus instead of MIPI-DSI.
+  espressif/esp_lcd_panel_io_additions:
+    version: ^1.0.1
+    rules:
+    - if: target in [esp32p4, esp32s3]
   espressif/esp_lcd_jd9165:
     version: ^2.0.2
     rules:

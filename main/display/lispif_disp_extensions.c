@@ -39,6 +39,7 @@
 #include "display/disp_axs15231.h"
 #include "display/disp_gc9a01.h"
 #include "display/disp_jd9853.h"
+#include "display/disp_st7701_rgb.h"
 
 #if CONFIG_IDF_TARGET_ESP32P4
 #include "display/disp_st7701.h"
@@ -556,6 +557,109 @@ static lbm_value ext_disp_load_st7701(lbm_value *args, lbm_uint argn) {
 }
 #endif
 
+// (disp-load-st7701-rgb width height cs sclk sda rst de vsync hsync pclk
+//                       pclk-mhz '(d0 d1 ... d15))
+//
+// The data list is in bus order: B0..B4, G0..G5, R0..R4. A parallel RGB panel
+// needs 16 data lines plus 4 sync lines plus a 3-wire SPI link for register
+// setup, which is too many pins for a flat argument list.
+static lbm_value ext_disp_load_st7701_rgb(lbm_value *args, lbm_uint argn) {
+#if SOC_LCD_RGB_SUPPORTED
+	if (argn != 12) {
+		lbm_set_error_reason((char*)lbm_error_str_num_args);
+		return ENC_SYM_EERROR;
+	}
+	for (int i = 0; i < 11; i++) {
+		if (!lbm_is_number(args[i])) {
+			lbm_set_error_reason((char*)lbm_error_str_no_number);
+			return ENC_SYM_TERROR;
+		}
+	}
+
+	disp_st7701_rgb_cfg_t cfg = {
+		.width    = lbm_dec_as_i32(args[0]),
+		.height   = lbm_dec_as_i32(args[1]),
+		.pin_cs   = lbm_dec_as_i32(args[2]),
+		.pin_sclk = lbm_dec_as_i32(args[3]),
+		.pin_sda  = lbm_dec_as_i32(args[4]),
+		.pin_rst  = lbm_dec_as_i32(args[5]),
+		.pin_de    = lbm_dec_as_i32(args[6]),
+		.pin_vsync = lbm_dec_as_i32(args[7]),
+		.pin_hsync = lbm_dec_as_i32(args[8]),
+		.pin_pclk  = lbm_dec_as_i32(args[9]),
+		.pclk_hz   = lbm_dec_as_i32(args[10]) * 1000000,
+	};
+
+	if (cfg.width <= 0 || cfg.height <= 0) {
+		lbm_set_error_reason("Invalid display size");
+		return ENC_SYM_EERROR;
+	}
+
+	// The S3 cannot keep a wider bus fed from PSRAM at this resolution.
+	if (cfg.pclk_hz <= 0 || cfg.pclk_hz > 30000000) {
+		lbm_set_error_reason(msg_invalid_clk_speed);
+		return ENC_SYM_EERROR;
+	}
+
+	int pins[5] = {cfg.pin_cs, cfg.pin_sclk, cfg.pin_sda,
+			cfg.pin_de, cfg.pin_pclk};
+	for (int i = 0; i < 5; i++) {
+		if (!utils_gpio_is_valid(pins[i])) {
+			lbm_set_error_reason(msg_invalid_gpio);
+			return ENC_SYM_EERROR;
+		}
+	}
+	// DE-mode panels leave hsync/vsync unused, and reset is often tied high
+	if ((cfg.pin_rst >= 0 && !utils_gpio_is_valid(cfg.pin_rst)) ||
+			(cfg.pin_vsync >= 0 && !utils_gpio_is_valid(cfg.pin_vsync)) ||
+			(cfg.pin_hsync >= 0 && !utils_gpio_is_valid(cfg.pin_hsync))) {
+		lbm_set_error_reason(msg_invalid_gpio);
+		return ENC_SYM_EERROR;
+	}
+
+	lbm_value curr = args[11];
+	int n = 0;
+	while (lbm_is_cons(curr)) {
+		lbm_value car = lbm_car(curr);
+		if (!lbm_is_number(car)) {
+			lbm_set_error_reason((char*)lbm_error_str_no_number);
+			return ENC_SYM_TERROR;
+		}
+		if (n >= 16) {
+			lbm_set_error_reason("Expected 16 data pins");
+			return ENC_SYM_EERROR;
+		}
+		int pin = lbm_dec_as_i32(car);
+		if (!utils_gpio_is_valid(pin)) {
+			lbm_set_error_reason(msg_invalid_gpio);
+			return ENC_SYM_EERROR;
+		}
+		cfg.pin_data[n++] = pin;
+		curr = lbm_cdr(curr);
+	}
+	if (n != 16) {
+		lbm_set_error_reason("Expected 16 data pins");
+		return ENC_SYM_EERROR;
+	}
+
+	if (!disp_st7701_rgb_init(&cfg)) {
+		lbm_set_error_reason("Could not initialize ST7701 RGB display");
+		return ENC_SYM_EERROR;
+	}
+
+	lbm_display_extensions_set_callbacks(
+			disp_st7701_rgb_render_image,
+			disp_st7701_rgb_clear,
+			disp_st7701_rgb_reset);
+	return ENC_SYM_TRUE;
+#else
+	(void)args;
+	(void)argn;
+	lbm_set_error_reason("No parallel RGB LCD peripheral on this chip");
+	return ENC_SYM_EERROR;
+#endif
+}
+
 void lispif_load_disp_extensions(void) {
 
 	lbm_display_extensions_init();
@@ -573,6 +677,10 @@ void lispif_load_disp_extensions(void) {
 	lbm_add_extension("disp-load-axs15231", ext_disp_load_axs15231);
 	lbm_add_extension("disp-load-gc9a01", ext_disp_load_gc9a01);
 	lbm_add_extension("disp-load-jd9853", ext_disp_load_jd9853);
+
+	#if SOC_LCD_RGB_SUPPORTED
+	lbm_add_extension("disp-load-st7701-rgb", ext_disp_load_st7701_rgb);
+	#endif
 
 	#if CONFIG_IDF_TARGET_ESP32P4
 	lbm_add_extension("disp-load-st7701", ext_disp_load_st7701);

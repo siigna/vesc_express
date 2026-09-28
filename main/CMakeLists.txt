@@ -92,6 +92,7 @@ set(COMPONENT_SRCS
 "display/disp_jd9853.c"
 "display/disp_jd9165.c"
 "display/disp_st7701.c"
+"display/disp_st7701_rgb.c"
 
 "drivers/bme280/bme280.c"
 "drivers/bme280/bme280_if.c"
@@ -133,6 +134,7 @@ set(COMPONENT_ADD_INCLUDEDIRS
 "hwconf/avaspark"
 "hwconf/vesc/vbms_inf_sat"
 "hwconf/seeed"
+"hwconf/waveshare/s3_touch_lcd4"
 
 "lispBM"
 "lispBM/include"

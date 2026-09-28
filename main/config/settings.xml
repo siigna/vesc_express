@@ -491,6 +491,8 @@ p, li { white-space: pre-wrap; }
                     <param>vesclog_idle_suppress</param>
                     <param>vesclog_idle_timeout_s</param>
                     <param>vesclog_idle_speed_x10</param>
+                    <param>::sep::Log Trim Threshold</param>
+                    <param>vesclog_trim_speed_x10</param>
                 </subgroupParams>
             </subgroup>
             <subgroup>
@@ -515,8 +517,6 @@ p, li { white-space: pre-wrap; }
                     <param>::sep::Log Server</param>
                     <param>vesclog_http_en</param>
                     <param>vesclog_http_port</param>
-                    <param>::sep::Log Trim Threshold</param>
-                    <param>vesclog_trim_speed_x10</param>
                 </subgroupParams>
             </subgroup>
             <subgroup>

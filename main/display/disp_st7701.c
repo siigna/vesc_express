@@ -60,10 +60,49 @@ static st7701_jc4880_ctx_t m_ctx = {
     .height = LCD_V_RES,
 };
 
+/* Conversion scratch, kept for the process lifetime and grown on demand.
+ *
+ * This used to be two heap_caps_malloc calls per rendered image, up to 750 kB
+ * each at this panel's size, freed again at each of seven exit points. Beyond
+ * the churn, repeatedly taking and returning large PSRAM blocks fragments the
+ * heap, and the frees were a standing invitation to add a return and leak.
+ *
+ * Holds two frames back to back: the converted pixels, and the rotated copy
+ * when the orientation is not 0.
+ *
+ * Note this is shared state with no lock, which assumes rendering is
+ * serialised. The other esp_lcd drivers in this tree (disp_axs15231,
+ * disp_st7701_rgb) already assume the same, so this matches rather than
+ * introduces the assumption -- but two lisp threads calling disp-render at
+ * once would corrupt each other's pixels here, and the panel access below was
+ * never serialised either. Worth fixing across the drivers together rather
+ * than in one of them.
+ */
+static uint16_t *m_conv_buf = NULL;
+static uint32_t m_conv_pix = 0;
+
+static bool conv_buf_ensure(uint32_t num_pix) {
+    if (m_conv_buf && m_conv_pix >= num_pix) {
+        return true;
+    }
+    if (m_conv_buf) {
+        free(m_conv_buf);
+        m_conv_buf = NULL;
+        m_conv_pix = 0;
+    }
+    /* Room for the frame and its rotated copy */
+    m_conv_buf = heap_caps_malloc((size_t)num_pix * 2 * sizeof(uint16_t),
+            MALLOC_CAP_8BIT);
+    if (!m_conv_buf) {
+        return false;
+    }
+    m_conv_pix = num_pix;
+    return true;
+}
+
 static int m_pin_rst = -1;
 static int m_lane_mbps = 1300;
 static int m_rotation = 0; // 0=0°, 1=90°CW, 2=180°, 3=270°CW
-static bool m_orientation_registered = false;
 
 #if SOC_MIPI_DSI_SUPPORTED
 static const st7701_lcd_init_cmd_t vendor_specific_init_default[] = {
@@ -243,14 +282,12 @@ bool disp_st7701_render_image(image_buffer_t *img, uint16_t x, uint16_t y, color
     }
 
     uint32_t num_pix = (uint32_t)img->width * (uint32_t)img->height;
-    uint16_t *frame = heap_caps_malloc(num_pix * sizeof(uint16_t), MALLOC_CAP_8BIT);
-    if (!frame) {
+    if (!conv_buf_ensure(num_pix)) {
         return false;
     }
+    uint16_t *frame = m_conv_buf;
 
-    bool ok = convert_to_rgb565(img, colors, frame);
-    if (!ok) {
-        free(frame);
+    if (!convert_to_rgb565(img, colors, frame)) {
         return false;
     }
 
@@ -260,7 +297,6 @@ bool disp_st7701_render_image(image_buffer_t *img, uint16_t x, uint16_t y, color
         pw = img->width; ph = img->height;
         if ((uint32_t)px + (uint32_t)pw > (uint32_t)ctx->width ||
             (uint32_t)py + (uint32_t)ph > (uint32_t)ctx->height) {
-            free(frame);
             return false;
         }
     } else if (m_rotation == 1) { // 90° CW: logical(x,y) -> physical(H-y-lh, x)
@@ -268,7 +304,6 @@ bool disp_st7701_render_image(image_buffer_t *img, uint16_t x, uint16_t y, color
         py = (int)x;
         pw = img->height; ph = img->width;
         if (px < 0 || py < 0 || px + pw > LCD_H_RES || py + ph > LCD_V_RES) {
-            free(frame);
             return false;
         }
     } else if (m_rotation == 2) { // 180°
@@ -276,7 +311,6 @@ bool disp_st7701_render_image(image_buffer_t *img, uint16_t x, uint16_t y, color
         py = LCD_V_RES - (int)y - (int)img->height;
         pw = img->width; ph = img->height;
         if (px < 0 || py < 0 || px + pw > LCD_H_RES || py + ph > LCD_V_RES) {
-            free(frame);
             return false;
         }
     } else { // 270° CW: logical(x,y) -> physical(y, W-x-lw)
@@ -284,19 +318,13 @@ bool disp_st7701_render_image(image_buffer_t *img, uint16_t x, uint16_t y, color
         py = LCD_V_RES - (int)x - (int)img->width;
         pw = img->height; ph = img->width;
         if (px < 0 || py < 0 || px + pw > LCD_H_RES || py + ph > LCD_V_RES) {
-            free(frame);
             return false;
         }
     }
 
     uint16_t *send_buf = frame;
-    uint16_t *rotated = NULL;
     if (m_rotation != 0) {
-        rotated = heap_caps_malloc(num_pix * sizeof(uint16_t), MALLOC_CAP_8BIT);
-        if (!rotated) {
-            free(frame);
-            return false;
-        }
+        uint16_t *rotated = m_conv_buf + num_pix;
         rotate_rgb565(frame, rotated, img->width, img->height, m_rotation);
         send_buf = rotated;
     }
@@ -310,8 +338,6 @@ bool disp_st7701_render_image(image_buffer_t *img, uint16_t x, uint16_t y, color
         xSemaphoreTake(ctx->refresh_finish, pdMS_TO_TICKS(1000));
     }
 
-    free(frame);
-    if (rotated) { free(rotated); }
     return err == ESP_OK;
 #endif
 }
@@ -357,11 +383,13 @@ void disp_st7701_clear(uint32_t color) {
 #endif
 }
 
-static void disp_st7701_init_internal(void);
+static bool disp_st7701_init_internal(void);
 
 void disp_st7701_reset(void) {
     disp_st7701_deinit();
-    disp_st7701_init_internal();
+    if (!disp_st7701_init_internal()) {
+        ESP_LOGE(TAG, "reset failed to bring the panel back up");
+    }
 }
 
 lbm_value disp_st7701_ext_orientation(lbm_value *args, lbm_uint argn) {
@@ -376,37 +404,55 @@ lbm_value disp_st7701_ext_orientation(lbm_value *args, lbm_uint argn) {
     return ENC_SYM_TRUE;
 }
 
-void disp_st7701_init(int pin_rst, int lane_mbps) {
+bool disp_st7701_init(int pin_rst, int lane_mbps) {
     m_pin_rst = pin_rst;
     m_lane_mbps = lane_mbps;
-    
-    disp_st7701_init_internal();
+
+    if (!disp_st7701_init_internal()) {
+        return false;
+    }
 
     lbm_add_extension("ext-disp-orientation", disp_st7701_ext_orientation);
+    return true;
 }
 
-static void disp_st7701_init_internal(void) {
+/* Every step here used to be wrapped in ESP_ERROR_CHECK, which aborts the
+ * firmware. A panel that does not answer, or a lane rate the PHY cannot lock
+ * to, would take the whole board down instead of telling the caller -- and
+ * those are exactly the failures you hit while bringing a new board up. Now
+ * each step is checked, the partial setup is torn down, and the caller gets
+ * false. */
+#define DISP_CHECK(x) do {                                                    \
+        esp_err_t _e = (x);                                                   \
+        if (_e != ESP_OK) {                                                   \
+            ESP_LOGE(TAG, "%s failed: %s", #x, esp_err_to_name(_e));           \
+            disp_st7701_deinit();                                             \
+            return false;                                                     \
+        }                                                                     \
+    } while (0)
+
+static bool disp_st7701_init_internal(void) {
 #if !SOC_MIPI_DSI_SUPPORTED
-    return;
+    return false;
 #else
     st7701_jc4880_ctx_t *ctx = &m_ctx;
 
     if (ctx->panel) {
-        return;
+        return true;
     }
 
     esp_ldo_channel_config_t ldo_cfg = {
         .chan_id = MIPI_DSI_PHY_PWR_LDO_CHAN,
         .voltage_mv = MIPI_DSI_PHY_PWR_LDO_VOLTAGE_MV,
     };
-    ESP_ERROR_CHECK(esp_ldo_acquire_channel(&ldo_cfg, &ctx->ldo_chan));
+    DISP_CHECK(esp_ldo_acquire_channel(&ldo_cfg, &ctx->ldo_chan));
 
     esp_lcd_dsi_bus_config_t bus_cfg = ST7701_PANEL_BUS_DSI_2CH_CONFIG();
     bus_cfg.lane_bit_rate_mbps = (uint32_t)m_lane_mbps;
-    ESP_ERROR_CHECK(esp_lcd_new_dsi_bus(&bus_cfg, &ctx->dsi_bus));
+    DISP_CHECK(esp_lcd_new_dsi_bus(&bus_cfg, &ctx->dsi_bus));
 
     esp_lcd_dbi_io_config_t dbi_cfg = ST7701_PANEL_IO_DBI_CONFIG();
-    ESP_ERROR_CHECK(esp_lcd_new_panel_io_dbi(ctx->dsi_bus, &dbi_cfg, &ctx->io));
+    DISP_CHECK(esp_lcd_new_panel_io_dbi(ctx->dsi_bus, &dbi_cfg, &ctx->io));
 
     esp_lcd_dpi_panel_config_t dpi_cfg = {
         .dpi_clk_src = MIPI_DSI_DPI_CLK_SRC_DEFAULT,
@@ -452,25 +498,26 @@ static void disp_st7701_init_internal(void) {
         .vendor_config = &vendor_cfg,
     };
 
-    ESP_ERROR_CHECK(esp_lcd_new_panel_st7701(ctx->io, &panel_cfg, &ctx->panel));
-    ESP_ERROR_CHECK(esp_lcd_panel_reset(ctx->panel));
-    ESP_ERROR_CHECK(esp_lcd_panel_init(ctx->panel));
+    DISP_CHECK(esp_lcd_new_panel_st7701(ctx->io, &panel_cfg, &ctx->panel));
+    DISP_CHECK(esp_lcd_panel_reset(ctx->panel));
+    DISP_CHECK(esp_lcd_panel_init(ctx->panel));
 
     #if ESP_IDF_VERSION >= ESP_IDF_VERSION_VAL(6, 0, 0)
-    ESP_ERROR_CHECK(esp_lcd_dpi_panel_enable_dma2d(ctx->panel));
+    DISP_CHECK(esp_lcd_dpi_panel_enable_dma2d(ctx->panel));
     #endif
 
-    ESP_ERROR_CHECK(esp_lcd_panel_disp_on_off(ctx->panel, true));
+    DISP_CHECK(esp_lcd_panel_disp_on_off(ctx->panel, true));
 
     ctx->refresh_finish = xSemaphoreCreateBinary();
     if (ctx->refresh_finish) {
         esp_lcd_dpi_panel_event_callbacks_t cbs = {
             .on_color_trans_done = notify_refresh_ready,
         };
-        ESP_ERROR_CHECK(esp_lcd_dpi_panel_register_event_callbacks(ctx->panel, &cbs, ctx->refresh_finish));
+        DISP_CHECK(esp_lcd_dpi_panel_register_event_callbacks(ctx->panel, &cbs, ctx->refresh_finish));
     }
 
     ESP_LOGI(TAG, "ST7701 display initialized");
+    return true;
 #endif
 }
 
@@ -503,6 +550,12 @@ void disp_st7701_deinit(void) {
     if (ctx->ldo_chan) {
         esp_ldo_release_channel(ctx->ldo_chan);
         ctx->ldo_chan = NULL;
+    }
+
+    if (m_conv_buf) {
+        free(m_conv_buf);
+        m_conv_buf = NULL;
+        m_conv_pix = 0;
     }
 
 #endif

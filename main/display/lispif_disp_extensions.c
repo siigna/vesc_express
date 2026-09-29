@@ -542,7 +542,12 @@ static lbm_value ext_disp_load_st7701(lbm_value *args, lbm_uint argn) {
 		return ENC_SYM_EERROR;
 	}
 
-	disp_st7701_init(pin_rst, lane_mbps);
+	if (!disp_st7701_init(pin_rst, lane_mbps)) {
+		lbm_set_error_reason("Could not initialize the ST7701 display. "
+				"Check the reset pin and the DSI lane rate.");
+		return ENC_SYM_EERROR;
+	}
+
 	lbm_display_extensions_set_callbacks(
 			disp_st7701_render_image,
 			disp_st7701_clear,

@@ -738,6 +738,113 @@ lbm_value ttf_text_bin(lbm_value *args, lbm_uint argn) {
   return ENC_SYM_TRUE;
 }
 
+/* Measure a utf8 string in a prepared font, without touching LispBM.
+ *
+ * Split out of ext_ttf_wh so that C callers -- a layout engine, for instance --
+ * can measure text on a hot path without going through an extension call.
+ * ext_ttf_wh below is now a thin wrapper over it, so the two cannot drift.
+ *
+ * font is the prepared-font buffer produced by ttf-prepare, font_size its
+ * length in bytes. Returns false if the buffer is malformed or the string
+ * contains a glyph the font was not prepared with.
+ */
+bool lbm_ttf_measure(const uint8_t *font, int32_t font_size,
+                     const char *utf8, float line_spacing,
+                     float *width, float *height) {
+  if (!font || !utf8 || font_size < 10) return false;
+
+  int32_t index = 0;
+  uint16_t version;
+  if (!buffer_get_font_preamble((uint8_t*)font, &version, &index)) {
+    return false;
+  }
+
+  float ascender;
+  float descender;
+  float line_gap;
+  if (!font_get_line_metrics((uint8_t*)font, font_size,
+                             &ascender, &descender, &line_gap, index)) {
+    return false;
+  }
+
+  int32_t kern_index = 0;
+  if (!font_get_kerning_table_index((uint8_t*)font, font_size, &kern_index, index)) {
+    return false;
+  }
+
+  int32_t glyphs_index = 0;
+  uint32_t num_codes;
+  uint32_t color_fmt;
+  if (!font_get_glyphs_table_index((uint8_t*)font, font_size, &glyphs_index,
+                                   &num_codes, &color_fmt, index)) {
+    return false;
+  }
+
+  float x = 0.0;
+  float y = 0.0;
+  float max_x = 0.0;
+
+  uint32_t utf32;
+  uint32_t prev = 0;
+  bool has_prev = false;
+  uint32_t i = 0;
+  uint32_t next_i = 0;
+  while (get_utf32((uint8_t*)utf8, &utf32, i, &next_i)) {
+    if (utf32 == '\n') {
+      if (x > max_x) max_x = x;
+      x = 0.0;
+      y += line_spacing * (ascender - descender + line_gap);
+      i++;
+      continue; // next iteration
+    }
+
+    float x_n = x;
+
+    float advance_width;
+    float left_side_bearing;
+    int32_t y_offset;
+    int32_t width_g;
+    int32_t height_g;
+    uint8_t *gfx;
+
+    if (font_get_glyph((uint8_t*)font,
+                       &advance_width,
+                       &left_side_bearing,
+                       &y_offset,
+                       &width_g,
+                       &height_g,
+                       &gfx,
+                       utf32,
+                       num_codes,
+                       (color_format_t)color_fmt,
+                       glyphs_index)) {
+
+      float x_shift = 0;
+      float y_shift = 0;
+      if (has_prev) {
+        font_get_kerning((uint8_t*)font,
+                         prev,
+                         utf32,
+                         &x_shift,
+                         &y_shift,
+                         kern_index);
+      }
+      x_n += x_shift;
+    } else {
+      return false;
+    }
+    x = x_n + advance_width;
+    i = next_i;
+    prev = utf32;
+    has_prev = true;
+  }
+  if (max_x < x) max_x = x;
+
+  if (width)  *width  = max_x;
+  if (height) *height = y + line_spacing * (ascender - descender + line_gap);
+  return true;
+}
+
 lbm_value ext_ttf_wh(lbm_value *args, lbm_uint argn) {
   lbm_value res = ENC_SYM_TERROR;
   lbm_value font;
@@ -771,101 +878,20 @@ lbm_value ext_ttf_wh(lbm_value *args, lbm_uint argn) {
   lbm_array_header_t *font_arr = lbm_dec_array_r(font);
   if (font_arr->size < 10) return ENC_SYM_EERROR;
 
-  int32_t index = 0;
-  uint16_t version;
-
-  if (!buffer_get_font_preamble((uint8_t*)font_arr->data, &version, &index)) {
+  float w;
+  float h;
+  if (!lbm_ttf_measure((uint8_t*)font_arr->data, (int32_t)font_arr->size,
+                       utf8_str, line_spacing, &w, &h)) {
     return ENC_SYM_EERROR;
   }
 
-  float ascender;
-  float descender;
-  float line_gap;
-
-  if(!font_get_line_metrics((uint8_t*)font_arr->data, (int32_t)font_arr->size, &ascender, &descender, &line_gap , index)) {
-    return ENC_SYM_EERROR;
-  }
-
-  int32_t kern_index = 0;
-
-  if (!font_get_kerning_table_index((uint8_t*)font_arr->data, (int32_t)font_arr->size, &kern_index, index)) {
-    return ENC_SYM_EERROR;
-  }
-
-  int32_t glyphs_index = 0;
-  uint32_t num_codes;
-  uint32_t color_fmt;
-
-  if (!font_get_glyphs_table_index((uint8_t*)font_arr->data, (int32_t)font_arr->size, &glyphs_index, &num_codes, &color_fmt, index)) {
-    return ENC_SYM_EERROR;
-  }
-
-  float x = 0.0;
-  float y = 0.0;
-  float max_x = 0.0;
-
-  uint32_t utf32;
-  uint32_t prev;
-  bool has_prev = false;
-  uint32_t i = 0;
-  uint32_t next_i = 0;
-  while (get_utf32((uint8_t*)utf8_str, &utf32, i, &next_i)) {
-    if (utf32 == '\n') {
-      if (x > max_x) max_x = x;
-      x = 0.0;
-      y += line_spacing * (ascender - descender + line_gap);
-      i++;
-      continue; // next iteration
-    }
-
-    float x_n = x;
-
-    float advance_width;
-    float left_side_bearing;
-    int32_t y_offset;
-    int32_t width;
-    int32_t height;
-    uint8_t *gfx;
-
-    if (font_get_glyph((uint8_t*)font_arr->data,
-                       &advance_width,
-                       &left_side_bearing,
-                       &y_offset,
-                       &width,
-                       &height,
-                       &gfx,
-                       utf32,
-                       num_codes,
-                       (color_format_t)color_fmt,
-                       glyphs_index)) {
-
-      float x_shift = 0;
-      float y_shift = 0;
-      if (has_prev) {
-        font_get_kerning((uint8_t*)font_arr->data,
-                         prev,
-                         utf32,
-                         &x_shift,
-                         &y_shift,
-                         kern_index);
-      }
-      x_n += x_shift;
-    } else {
-      return ENC_SYM_EERROR;
-    }
-    x = x_n + advance_width;
-    i = next_i;
-    prev = utf32;
-    has_prev = true;
-  }
-  if (max_x < x) max_x = x;
   lbm_value rest = lbm_cdr(r_list);
   if (up || down) {
-    lbm_set_car(r_list, lbm_enc_u((uint32_t)(y + line_spacing * (ascender - descender + line_gap))));
-    lbm_set_car(rest, lbm_enc_u((uint32_t)max_x));
+    lbm_set_car(r_list, lbm_enc_u((uint32_t)h));
+    lbm_set_car(rest, lbm_enc_u((uint32_t)w));
   } else {
-    lbm_set_car(r_list, lbm_enc_u((uint32_t)max_x));
-    lbm_set_car(rest, lbm_enc_u((uint32_t)(y + line_spacing * (ascender - descender + line_gap))));
+    lbm_set_car(r_list, lbm_enc_u((uint32_t)w));
+    lbm_set_car(rest, lbm_enc_u((uint32_t)h));
   }
   return r_list;
 }

@@ -25,6 +25,11 @@
  *        (row (h 54) (gap 6)
  *          (box (w fit) (h 40) (pad 10) (bg 1) (radius 6)
  *            (text (font 1) (str . "LIGHT") (fg 3)))))
+ *
+ * Element props: w h (a number, grow, fit, or (pct f)), pad / padx / pady,
+ * gap, bg, radius, alignx (left / center / right),
+ * aligny (top / center / bottom).
+ * Text props: font, size, fg, str.
  *     480 480
  *     (list font-16 font-24))
  *
@@ -98,9 +103,10 @@ static void *m_arena_mem = NULL;
 
 // Symbols, interned once
 static lbm_uint sym_col, sym_row, sym_box, sym_text;
-static lbm_uint sym_w, sym_h, sym_pad, sym_gap, sym_bg, sym_fg;
+static lbm_uint sym_w, sym_h, sym_pad, sym_padx, sym_pady, sym_gap, sym_bg, sym_fg;
 static lbm_uint sym_radius, sym_font, sym_size, sym_str, sym_align;
-static lbm_uint sym_grow, sym_fit;
+static lbm_uint sym_alignx, sym_aligny, sym_left, sym_center, sym_right, sym_top, sym_bottom;
+static lbm_uint sym_grow, sym_fit, sym_pct;
 static lbm_uint sym_rect, sym_border, sym_clip_start, sym_clip_end;
 static bool m_syms_ok = false;
 
@@ -116,6 +122,8 @@ static bool intern_syms(void) {
 	ok = ok && lbm_add_symbol_const("w", &sym_w);
 	ok = ok && lbm_add_symbol_const("h", &sym_h);
 	ok = ok && lbm_add_symbol_const("pad", &sym_pad);
+	ok = ok && lbm_add_symbol_const("padx", &sym_padx);
+	ok = ok && lbm_add_symbol_const("pady", &sym_pady);
 	ok = ok && lbm_add_symbol_const("gap", &sym_gap);
 	ok = ok && lbm_add_symbol_const("bg", &sym_bg);
 	ok = ok && lbm_add_symbol_const("fg", &sym_fg);
@@ -124,8 +132,16 @@ static bool intern_syms(void) {
 	ok = ok && lbm_add_symbol_const("size", &sym_size);
 	ok = ok && lbm_add_symbol_const("str", &sym_str);
 	ok = ok && lbm_add_symbol_const("align", &sym_align);
+	ok = ok && lbm_add_symbol_const("alignx", &sym_alignx);
+	ok = ok && lbm_add_symbol_const("aligny", &sym_aligny);
+	ok = ok && lbm_add_symbol_const("left", &sym_left);
+	ok = ok && lbm_add_symbol_const("center", &sym_center);
+	ok = ok && lbm_add_symbol_const("right", &sym_right);
+	ok = ok && lbm_add_symbol_const("top", &sym_top);
+	ok = ok && lbm_add_symbol_const("bottom", &sym_bottom);
 	ok = ok && lbm_add_symbol_const("grow", &sym_grow);
 	ok = ok && lbm_add_symbol_const("fit", &sym_fit);
+	ok = ok && lbm_add_symbol_const("pct", &sym_pct);
 	ok = ok && lbm_add_symbol_const("rect", &sym_rect);
 	ok = ok && lbm_add_symbol_const("border", &sym_border);
 	ok = ok && lbm_add_symbol_const("clip-start", &sym_clip_start);
@@ -200,19 +216,61 @@ static bool is_kind(lbm_value v) {
 	return s == sym_col || s == sym_row || s == sym_box || s == sym_text;
 }
 
-/* w and h accept a number for a fixed size, or the symbols grow and fit. The
- * default is fit, which is Clay's own default. */
+/* w and h accept a number for a fixed size, the symbols grow or fit, or
+ * (pct f) for a fraction of the parent -- which is what a bar fill wants, so
+ * that a battery gauge is a percentage rather than a computed width.
+ * The default is fit, which is Clay's own default. */
 static Clay_SizingAxis size_axis(lbm_value el, lbm_uint name) {
 	lbm_value v;
 	if (prop_get(el, name, &v)) {
 		if (lbm_is_number(v)) {
 			return CLAY_SIZING_FIXED(lbm_dec_as_float(v));
 		}
-		if (lbm_is_symbol(v) && lbm_dec_sym(v) == sym_grow) {
-			return CLAY_SIZING_GROW(0);
+		if (lbm_is_symbol(v)) {
+			if (lbm_dec_sym(v) == sym_grow) {
+				return CLAY_SIZING_GROW(0);
+			}
+		} else if (lbm_is_cons(v) && lbm_is_symbol(lbm_car(v)) &&
+				lbm_dec_sym(lbm_car(v)) == sym_pct &&
+				lbm_is_cons(lbm_cdr(v)) && lbm_is_number(lbm_car(lbm_cdr(v)))) {
+			float f = lbm_dec_as_float(lbm_car(lbm_cdr(v)));
+			/* Clay rejects a percentage above 1 with an error rather than
+			 * clamping, and a dash will hand it a ratio from live data. */
+			if (f < 0.0f) {
+				f = 0.0f;
+			}
+			if (f > 1.0f) {
+				f = 1.0f;
+			}
+			return CLAY_SIZING_PERCENT(f);
 		}
 	}
 	return CLAY_SIZING_FIT(0);
+}
+
+/* How children are placed inside an element. Defaults to centred on both
+ * axes, which is what a pill or a value box wants; a label column wants its
+ * text pushed to one edge, and that is what alignx is for. */
+static Clay_ChildAlignment child_align(lbm_value el) {
+	Clay_ChildAlignment a = { CLAY_ALIGN_X_CENTER, CLAY_ALIGN_Y_CENTER };
+	lbm_value v;
+	if (prop_get(el, sym_alignx, &v) && lbm_is_symbol(v)) {
+		lbm_uint s = lbm_dec_sym(v);
+		if (s == sym_left) {
+			a.x = CLAY_ALIGN_X_LEFT;
+		} else if (s == sym_right) {
+			a.x = CLAY_ALIGN_X_RIGHT;
+		}
+	}
+	if (prop_get(el, sym_aligny, &v) && lbm_is_symbol(v)) {
+		lbm_uint s = lbm_dec_sym(v);
+		if (s == sym_top) {
+			a.y = CLAY_ALIGN_Y_TOP;
+		} else if (s == sym_bottom) {
+			a.y = CLAY_ALIGN_Y_BOTTOM;
+		}
+	}
+	return a;
 }
 
 /* Palette indices travel in the alpha-less part of a Clay_Color. Clay only
@@ -314,7 +372,12 @@ static void walk(lbm_value el) {
 		return;
 	}
 
-	uint16_t pad = (uint16_t)prop_num(el, sym_pad, 0);
+	/* pad sets all four edges; padx and pady override one axis, which is what
+	 * a strip wants when it needs an inset from the sides without becoming
+	 * taller than the text it holds. */
+	float pad_all = prop_num(el, sym_pad, 0);
+	uint16_t pad_x = (uint16_t)prop_num(el, sym_padx, pad_all);
+	uint16_t pad_y = (uint16_t)prop_num(el, sym_pady, pad_all);
 	lbm_value bgv;
 	bool has_bg = prop_get(el, sym_bg, &bgv) && lbm_is_number(bgv);
 
@@ -322,9 +385,9 @@ static void walk(lbm_value el) {
 	Clay__ConfigureOpenElement((Clay_ElementDeclaration){
 		.layout = {
 			.sizing = { size_axis(el, sym_w), size_axis(el, sym_h) },
-			.padding = { pad, pad, pad, pad },
+			.padding = { pad_x, pad_x, pad_y, pad_y },
 			.childGap = (uint16_t)prop_num(el, sym_gap, 0),
-			.childAlignment = { CLAY_ALIGN_X_CENTER, CLAY_ALIGN_Y_CENTER },
+			.childAlignment = child_align(el),
 			.layoutDirection = kind == sym_col ? CLAY_TOP_TO_BOTTOM
 			                                   : CLAY_LEFT_TO_RIGHT,
 		},

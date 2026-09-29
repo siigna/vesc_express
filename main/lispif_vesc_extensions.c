@@ -36,6 +36,7 @@
 #include "extensions/mutex_extensions.h"
 #include "extensions/lbm_dyn_lib.h"
 #include "extensions/ttf_extensions.h"
+#include "display/clay_layout.h"
 #include "lispif_disp_extensions.h"
 #include "lispif_touch_extensions.h"
 #include "lispif_wifi_extensions.h"
@@ -7125,6 +7126,7 @@ void lispif_load_vesc_extensions(bool main_found) {
 		lbm_color_extensions_init();
 		lbm_mutex_extensions_init();
 		lbm_ttf_extensions_init();
+		lbm_clay_extensions_init(); // no-op unless HW_USE_CLAY
 		lbm_dyn_lib_init();
 		lbm_array_extensions_init();
 		lbm_string_extensions_init();

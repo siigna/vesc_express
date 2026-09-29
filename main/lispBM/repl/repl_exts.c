@@ -48,6 +48,9 @@
 #include "extensions/mutex_extensions.h"
 #include "extensions/lbm_dyn_lib.h"
 #include "extensions/ttf_extensions.h"
+#ifdef WITH_CLAY
+#include "clay_layout.h"
+#endif
 #include "extensions/random_extensions.h"
 #include "extensions/dsp_extensions.h"
 #include "extensions/crypto_extensions.h"
@@ -1895,6 +1898,9 @@ int init_exts(void) {
   lbm_mutex_extensions_init();
   lbm_dyn_lib_init();
   lbm_ttf_extensions_init();
+#ifdef WITH_CLAY
+  lbm_clay_extensions_init();
+#endif
   lbm_random_extensions_init();
   lbm_dsp_extensions_init();
   lbm_crypto_extensions_init();

@@ -98,6 +98,15 @@ ifneq (,$(filter sdl,$(FEATURES)))
 	REPL_SRC += lbm_sdl.c
 endif
 
+# Local integration, not part of lispBM: build the vesc_express Clay layout
+# extension into the repl so screen descriptions can be tested on a desktop.
+# CLAY_DIR is where clay_layout.c and clay/clay.h live.
+CLAY_DIR ?= ../../display
+ifneq (,$(filter clay, $(FEATURES)))
+	CCFLAGS += -DWITH_CLAY -DHW_USE_CLAY -I$(CLAY_DIR) -I$(CLAY_DIR)/clay
+	REPL_SRC += $(CLAY_DIR)/clay_layout.c
+endif
+
 # Use ALSA
 ifneq (,$(filter alsa, $(FEATURES)))
 	CCFLAGS += -DWITH_ALSA

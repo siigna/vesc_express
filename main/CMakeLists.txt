@@ -93,6 +93,7 @@ set(COMPONENT_SRCS
 "display/disp_jd9165.c"
 "display/disp_st7701.c"
 "display/disp_st7701_rgb.c"
+"display/clay_layout.c"
 
 "drivers/bme280/bme280.c"
 "drivers/bme280/bme280_if.c"
@@ -142,6 +143,7 @@ set(COMPONENT_ADD_INCLUDEDIRS
 "lispBM/platform/freertos/include"
 "lispBM/utils"
 "display"
+"display/clay"
 "wifi"
 "ble"
 "rgbled"
@@ -153,6 +155,13 @@ set(COMPONENT_ADD_INCLUDEDIRS
 )
 
 register_component()
+
+# Clay is ~80 kB of flash and is only usable on a board with a display, so it
+# is enabled for the targets with room rather than for everything. The C3 in
+# particular has very little app partition left.
+if(IDF_TARGET STREQUAL "esp32s3" OR IDF_TARGET STREQUAL "esp32p4")
+    add_compile_definitions(HW_USE_CLAY)
+endif()
 
 add_compile_definitions(
     LBM_USE_DYN_FUNS

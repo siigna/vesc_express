@@ -1,0 +1,133 @@
+; Bring-up check for the Waveshare ESP32-P4-WIFI6-Touch-LCD-4.3.
+;
+; Paste into VESC Tool -> VESC Dev Tools -> LispBM Scripting and Upload, or
+; run it a step at a time. Nothing here assumes the board works: every step
+; is trapped and reported, so a failure tells you which one rather than
+; stopping the rest.
+;
+; It answers the two questions that decide whether this hardware config is
+; right, neither of which can be settled off-target:
+;
+;   1. Does upstream's disp_st7701.c drive this panel as it stands? It
+;      hardcodes a 34 MHz DPI clock and one set of video timings, and the
+;      board's documentation says 30 MHz. Wrong timings on a DSI panel give a
+;      blank, torn or rolling screen, and the fix is to make the clock a
+;      parameter.
+;
+;   2. Which address does the GT911 answer on? The vendored touch component
+;      only runs its address-selection sequence when both a reset and an
+;      interrupt pin are wired, and this board brings out no interrupt, so
+;      whatever the straps produce is what you get. touch-load-gt911 can
+;      currently only ask for 0x5D, so if it answers on 0x14 the loader needs
+;      an address argument.
+;
+; Pin numbers come from config.lisp in the dash_p4 package and from the board
+; documentation. They have not been checked against hardware.
+
+(def disp-rst 27)
+(def disp-lane-mbps 500)
+(def bl-pin 26)         ; active-LOW
+(def touch-sda 7)
+(def touch-scl 8)
+(def touch-rst 23)
+
+(defun say (label v) (print (list label v)))
+
+(defun try (label thunk)
+    (match (trap (thunk))
+        ((exit-ok (? r)) (progn (say label r) r))
+        ((exit-error (? e)) (progn (say label (list 'FAILED e)) nil))
+        (_ (progn (say label 'FAILED) nil))))
+
+(print "--- 1. backlight off, so nothing shows while the panel comes up ---")
+; Active-LOW, so duty 1.0 is dark. hw_init already parked it; this is in case
+; something else has driven it since.
+(try 'backlight-off (fn () (pwm-start 5000 1.0 0 bl-pin)))
+
+(print "--- 2. touch bus: which address answers? ---")
+(try 'i2c-start (fn () (i2c-start 'rate-400k touch-sda touch-scl)))
+; The GT911 needs its reset released before it will answer.
+(try 'touch-reset (fn () {
+        (gpio-configure touch-rst 'pin-mode-out)
+        (gpio-write touch-rst 0)
+        (sleep 0.01)
+        (gpio-write touch-rst 1)
+        (sleep 0.06)
+        t
+}))
+(def addr-5d (try 'addr-0x5D (fn () (i2c-detect-addr 0x5D))))
+(def addr-14 (try 'addr-0x14 (fn () (i2c-detect-addr 0x14))))
+(print (list 'touch-address
+    (cond (addr-5d "0x5D, which touch-load-gt911 already uses")
+          (addr-14 "0x14, so touch-load-gt911 needs an address argument")
+          (t "neither answered: check wiring, the reset pin, and the bus"))))
+
+(print "--- 3. panel, at upstream's hardcoded timings ---")
+(def disp-ok (try 'disp-load (fn () (disp-load-st7701 disp-rst disp-lane-mbps))))
+
+(if disp-ok {
+        ; Landscape. 480x800 native, so this is what makes it 800x480.
+        (try 'orientation (fn () (ext-disp-orientation 1)))
+        (try 'clear-black (fn () (disp-clear 0x000000)))
+        (try 'backlight-on (fn () (pwm-start 5000 0.0 0 bl-pin)))
+
+        ; Solid fills first: if these are clean the bus and timings are good.
+        ; Tearing, rolling or a shifted image means the DPI clock or the
+        ; porches need to become parameters.
+        (print "  filling red, green, blue, white -- each should be clean and full screen")
+        (loopforeach c (list 0xFF0000 0x00FF00 0x0000FF 0xFFFFFF) {
+                (disp-clear c)
+                (sleep 0.8)
+        })
+        (disp-clear 0x000000)
+
+        ; Then geometry: a border and a diagonal show orientation and whether
+        ; the whole panel is addressable.
+        (print "  border and diagonal -- the border should touch all four edges")
+        (var w 800)
+        (var h 480)
+        (var b (img-buffer 'indexed2 w h))
+        (img-clear b)
+        (img-rectangle b 0 0 w h 1)
+        (img-line b 0 0 (- w 1) (- h 1) 1)
+        (img-line b 0 (- h 1) (- w 1) 0 1)
+        (disp-render b 0 0 '(0x000000 0x00C8FF))
+        (sleep 1.0)
+})
+
+(print "--- 4. backlight sweep: PWM should dim smoothly, not step ---")
+(if disp-ok {
+        (looprange i 0 21 {
+                ; active-LOW, so the duty is inverted
+                (pwm-set-duty (- 1.0 (/ (to-float i) 20.0)) 0)
+                (sleep 0.05)
+        })
+        (pwm-set-duty 0.0 0)
+})
+
+(print "--- 5. touch ---")
+(def touch-ok (try 'touch-load
+    (fn () (touch-load-gt911 touch-sda touch-scl touch-rst -1 800 480))))
+(if touch-ok {
+        (try 'transforms (fn () (touch-apply-transforms 0 0 0)))
+        (print "  touch the corners; x should grow to the right, y downward.")
+        (print "  if the axes are swapped or mirrored, set config-touch-transforms")
+        (print "  in the package's config.lisp to match.")
+        (looprange i 0 60 {
+                (var p (trap (touch-read)))
+                (match p ((exit-ok (? v)) (if v (print (list 'touch v)))) (_ nil))
+                (sleep 0.1)
+        })
+})
+
+(print "--- 6. CAN ---")
+; GPIO37/38 are the transceiver and are also UART0. The board's sdkconfig
+; moves the console to USB-Serial-JTAG for that reason; if you see garbage
+; frames in the first second after power-on, something is still driving the
+; pins as a UART.
+(try 'can-scan (fn () (can-scan)))
+
+(print "--- summary ---")
+(print (list 'panel (if disp-ok 'up 'FAILED)
+             'touch (if touch-ok 'up 'FAILED)
+             'touch-addr (cond (addr-5d 0x5D) (addr-14 0x14) (t 'none))))

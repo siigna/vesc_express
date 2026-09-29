@@ -31,7 +31,9 @@
 #include "esp_netif_types.h"
 #include "esp_event_base.h"
 #include "errno.h"
+#include <fcntl.h>
 #include "lwip/api.h"
+#include "lwip/sockets.h"
 
 #include "eval_cps.h"
 #include "heap.h"
@@ -76,6 +78,8 @@ static lbm_uint symbol_connecting     = 0;
 static lbm_uint symbol_disconnected   = 0;
 static lbm_uint symbol_socket_error   = 0;
 static lbm_uint symbol_connect_error  = 0;
+static lbm_uint symbol_bind_error     = 0;
+static lbm_uint symbol_listen_error   = 0;
 static lbm_uint symbol_wait           = 0;
 static lbm_uint symbol_no_wait        = 0;
 
@@ -91,6 +95,11 @@ static bool register_symbols(void) {
 	res = res && lbm_add_symbol_const("connecting", &symbol_connecting);
 	res = res && lbm_add_symbol_const("disconnected", &symbol_disconnected);
 	res = res && lbm_add_symbol_const("socket-error", &symbol_socket_error);
+	// connect-error was declared but never registered, so ENC_SYM on it
+	// encoded symbol id 0 rather than the intended symbol.
+	res = res && lbm_add_symbol_const("connect-error", &symbol_connect_error);
+	res = res && lbm_add_symbol_const("bind-error", &symbol_bind_error);
+	res = res && lbm_add_symbol_const("listen-error", &symbol_listen_error);
 	res = res && lbm_add_symbol_const("wait", &symbol_wait);
 	res = res && lbm_add_symbol_const("no-wait", &symbol_no_wait);
 
@@ -827,7 +836,10 @@ static lbm_value ext_wifi_ftm_measure(lbm_value *args, lbm_uint argn) {
 	return ENC_SYM_NIL;
 }
 
-#define CUSTOM_SOCKET_COUNT 5
+// One listening socket plus a handful of concurrent clients. The real
+// ceiling is CONFIG_LWIP_MAX_SOCKETS, shared with the VESC protocol
+// listener and the UDP broadcaster.
+#define CUSTOM_SOCKET_COUNT 8
 static int custom_sockets[CUSTOM_SOCKET_COUNT];
 static int custom_socket_now = 0;
 
@@ -861,7 +873,7 @@ static bool custom_socket_valid(int socket) {
  * @return todo
  */
 static lbm_value ext_tcp_connect(lbm_value *args, lbm_uint argn) {
-	if (!wifi_precheck(PRECHECK_MODE_STATION_ONLY)) {
+	if (!wifi_precheck(PRECHECK_MODE_NOT_DISABLED)) {
 		return ENC_SYM_EERROR;
 	}
 
@@ -950,6 +962,205 @@ static lbm_value ext_tcp_connect(lbm_value *args, lbm_uint argn) {
 	return lbm_enc_i(sock);
 }
 
+/* Build the (error-symbol . "strerror text") pair the tcp extensions return. */
+static lbm_value socket_errno_error(lbm_uint sym) {
+	char *errstr = strerror(errno);
+	lbm_value errstrval = ENC_SYM_NIL;
+	if (lbm_lift_array(&errstrval, errstr, strlen(errstr) + 1) == 0) {
+		return ENC_SYM_MERROR;
+	}
+
+	lbm_value errval = ENC_SYM_NIL;
+	errval = lbm_cons(errstrval, errval);
+	errval = lbm_cons(ENC_SYM(sym), errval);
+	return errval;
+}
+
+/**
+ * signature: (tcp-listen port:number [backlog:number]) -> number|error
+ * where
+ *   error = (socket-error . str)|(bind-error . str)|(listen-error . str)
+ *
+ * Open a listening tcp socket bound to every interface on the given port,
+ * so a script can act as a server. Use tcp-accept to take connections from
+ * it, and tcp-close to shut it down.
+ *
+ * The socket is left non-blocking so that tcp-accept can poll it without
+ * stalling the LBM scheduler.
+ *
+ * @param port The port to bind. Cast to a 16-bit unsigned integer.
+ * @param backlog [optional] Pending connection queue depth. (Default: 4)
+ * @return The listening socket, or an error pair.
+ */
+static lbm_value ext_tcp_listen(lbm_value *args, lbm_uint argn) {
+	if (!wifi_precheck(PRECHECK_MODE_NOT_DISABLED)) {
+		return ENC_SYM_EERROR;
+	}
+
+	if (!lbm_check_argn_range(argn, 1, 2)) {
+		return ENC_SYM_EERROR;
+	}
+
+	if (!lbm_is_number(args[0]) || (argn == 2 && !lbm_is_number(args[1]))) {
+		return ENC_SYM_TERROR;
+	}
+
+	const uint16_t port = lbm_dec_as_u32(args[0]);
+	int backlog = (argn == 2) ? lbm_dec_as_i32(args[1]) : 4;
+	if (backlog < 1) {
+		backlog = 1;
+	}
+
+	if (custom_socket_now >= CUSTOM_SOCKET_COUNT) {
+		lbm_set_error_reason("Too many sockets open.");
+		return ENC_SYM_EERROR;
+	}
+
+	int sock = socket(AF_INET, SOCK_STREAM, IPPROTO_IP);
+	if (sock < 0) {
+		return socket_errno_error(symbol_socket_error);
+	}
+
+	// Without this, restarting a script cannot rebind until the previous
+	// socket leaves TIME_WAIT.
+	int opt = 1;
+	setsockopt(sock, SOL_SOCKET, SO_REUSEADDR, &opt, sizeof(opt));
+
+	struct sockaddr_storage bind_addr = {0};
+	struct sockaddr_in *addr4 = (struct sockaddr_in *)&bind_addr;
+	addr4->sin_addr.s_addr = htonl(INADDR_ANY);
+	addr4->sin_family = AF_INET;
+	addr4->sin_port = htons(port);
+
+	if (bind(sock, (struct sockaddr *)&bind_addr, sizeof(bind_addr)) != 0) {
+		lbm_value err = socket_errno_error(symbol_bind_error);
+		close(sock);
+		return err;
+	}
+
+	if (listen(sock, backlog) != 0) {
+		lbm_value err = socket_errno_error(symbol_listen_error);
+		close(sock);
+		return err;
+	}
+
+	// accept() must not block the single LBM eval task
+	fcntl(sock, F_SETFL, fcntl(sock, F_GETFL, 0) | O_NONBLOCK);
+
+	custom_sockets[custom_socket_now++] = sock;
+
+	return lbm_enc_i(sock);
+}
+
+typedef struct {
+	lbm_cid return_cid;
+	int listen_socket;
+	float timeout;
+} accept_task_state;
+
+static void accept_task(void *arg) {
+	accept_task_state *s = (accept_task_state*)arg;
+	int start = xTaskGetTickCount();
+
+	for (;;) {
+		struct sockaddr_in client;
+		socklen_t client_len = sizeof(client);
+		int sock = accept(s->listen_socket, (struct sockaddr*)&client, &client_len);
+
+		if (sock >= 0) {
+			// The accepted socket may inherit O_NONBLOCK from the listener on
+			// some stacks; clear it so tcp-send behaves like it does for
+			// tcp-connect sockets.
+			fcntl(sock, F_SETFL, fcntl(sock, F_GETFL, 0) & ~O_NONBLOCK);
+
+			int no_delay = true;
+			setsockopt(sock, IPPROTO_TCP, TCP_NODELAY, &no_delay, sizeof(int));
+
+			if (custom_socket_now >= CUSTOM_SOCKET_COUNT) {
+				// No slot to track it, so the script could never close it
+				shutdown(sock, 0);
+				close(sock);
+				lbm_unblock_ctx_unboxed(s->return_cid, ENC_SYM(symbol_socket_error));
+			} else {
+				custom_sockets[custom_socket_now++] = sock;
+				lbm_unblock_ctx_unboxed(s->return_cid, lbm_enc_i(sock));
+			}
+			break;
+		}
+
+		if (errno == EWOULDBLOCK || errno == EAGAIN) {
+			if (UTILS_AGE_S(start) > s->timeout) {
+				lbm_unblock_ctx_unboxed(s->return_cid, ENC_SYM(symbol_no_data));
+				break;
+			}
+			vTaskDelay(1);
+			continue;
+		}
+
+		lbm_unblock_ctx_unboxed(s->return_cid, ENC_SYM_NIL);
+		break;
+	}
+
+	lbm_free(s);
+	vTaskDelete(NULL);
+}
+
+/**
+ * signature: (tcp-accept socket:number [timeout:number]) -> number|'no-data|nil
+ *
+ * Take the next pending connection from a socket created by tcp-listen. The
+ * calling thread blocks without stalling other LBM threads.
+ *
+ * @param socket The listening socket.
+ * @param timeout [optional] Seconds to wait for a connection. (Default: 1.0)
+ * @return The connected socket, usable with tcp-send/tcp-recv/tcp-close.
+ * 'no-data if the timeout elapsed with nothing pending, or nil on error.
+ */
+static lbm_value ext_tcp_accept(lbm_value *args, lbm_uint argn) {
+	if (!wifi_precheck(PRECHECK_MODE_NOT_DISABLED)) {
+		return ENC_SYM_EERROR;
+	}
+
+	if (!lbm_check_argn_range(argn, 1, 2)) {
+		return ENC_SYM_EERROR;
+	}
+
+	if (!lbm_is_number(args[0])) {
+		return ENC_SYM_TERROR;
+	}
+
+	int sock = lbm_dec_as_i32(args[0]);
+	if (!custom_socket_valid(sock)) {
+		lbm_set_error_reason("Invalid socket.");
+		return ENC_SYM_EERROR;
+	}
+
+	float timeout = 1.0;
+	if (argn == 2) {
+		if (!lbm_is_number(args[1])) {
+			return ENC_SYM_TERROR;
+		}
+		timeout = lbm_dec_as_float(args[1]);
+	}
+
+	accept_task_state *s = lbm_malloc(sizeof(accept_task_state));
+	if (!s) {
+		return ENC_SYM_MERROR;
+	}
+
+	lbm_block_ctx_from_extension();
+
+	s->return_cid = lbm_get_current_cid();
+	s->listen_socket = sock;
+	s->timeout = timeout;
+
+	xTaskCreatePinnedToCore(
+		accept_task, "lbm_sockets", 1024, s, 3, NULL, tskNO_AFFINITY
+	);
+
+	return ENC_SYM_NIL;
+}
+
 /**
  * signature: (tcp-close socket:number) -> bool
  *
@@ -964,7 +1175,7 @@ static lbm_value ext_tcp_connect(lbm_value *args, lbm_uint argn) {
  * (@todo: be more precise).
  */
 static lbm_value ext_tcp_close(lbm_value *args, lbm_uint argn) {
-	if (!wifi_precheck(PRECHECK_MODE_STATION_ONLY)) {
+	if (!wifi_precheck(PRECHECK_MODE_NOT_DISABLED)) {
 		return ENC_SYM_EERROR;
 	}
 
@@ -992,7 +1203,10 @@ static lbm_value ext_tcp_close(lbm_value *args, lbm_uint argn) {
 		return ENC_SYM_NIL;
 	}
 
-	for (int i = socket_ind;i < custom_socket_now;i++) {
+	// Stop at the last occupied slot: the old bound read custom_sockets[i + 1]
+	// with i == custom_socket_now - 1, which runs one past the array when the
+	// table is full.
+	for (int i = socket_ind;i < custom_socket_now - 1;i++) {
 		custom_sockets[i] = custom_sockets[i + 1];
 	}
 
@@ -1022,7 +1236,7 @@ static lbm_value ext_tcp_close(lbm_value *args, lbm_uint argn) {
  * internal process, that shouldn't happen).
  */
 static lbm_value ext_tcp_status(lbm_value *args, lbm_uint argn) {
-	if (!wifi_precheck(PRECHECK_MODE_STATION_ONLY)) {
+	if (!wifi_precheck(PRECHECK_MODE_NOT_DISABLED)) {
 		return ENC_SYM_EERROR;
 	}
 
@@ -1082,7 +1296,7 @@ static lbm_value ext_tcp_status(lbm_value *args, lbm_uint argn) {
  * @todo: Document this
  */
 static lbm_value ext_tcp_send(lbm_value *args, lbm_uint argn) {
-	if (!wifi_precheck(PRECHECK_MODE_STATION_ONLY)) {
+	if (!wifi_precheck(PRECHECK_MODE_NOT_DISABLED)) {
 		return ENC_SYM_EERROR;
 	}
 
@@ -1315,7 +1529,7 @@ recv_cleanup:
  * writing this) network error occurred.
  */
 static lbm_value ext_tcp_recv(lbm_value *args, lbm_uint argn) {
-	if (!wifi_precheck(PRECHECK_MODE_STATION_ONLY)) {
+	if (!wifi_precheck(PRECHECK_MODE_NOT_DISABLED)) {
 		return ENC_SYM_EERROR;
 	}
 
@@ -1456,7 +1670,7 @@ static lbm_value ext_tcp_recv(lbm_value *args, lbm_uint argn) {
  * this) network error occurred.
  */
 static lbm_value ext_tcp_recv_to_char(lbm_value *args, lbm_uint argn) {
-	if (!wifi_precheck(PRECHECK_MODE_STATION_ONLY)) {
+	if (!wifi_precheck(PRECHECK_MODE_NOT_DISABLED)) {
 		return ENC_SYM_EERROR;
 	}
 
@@ -1562,6 +1776,8 @@ void lispif_load_wifi_extensions(void) {
 	lbm_add_extension("wifi-max-tx-power", ext_wifi_max_tx_power);
 	lbm_add_extension("wifi-auto-reconnect", ext_wifi_auto_reconnect);
 	lbm_add_extension("wifi-ftm-measure", ext_wifi_ftm_measure);
+	lbm_add_extension("tcp-listen", ext_tcp_listen);
+	lbm_add_extension("tcp-accept", ext_tcp_accept);
 	lbm_add_extension("tcp-connect", ext_tcp_connect);
 	lbm_add_extension("tcp-close", ext_tcp_close);
 	lbm_add_extension("tcp-status", ext_tcp_status);

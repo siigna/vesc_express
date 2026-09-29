@@ -135,6 +135,7 @@ set(COMPONENT_ADD_INCLUDEDIRS
 "hwconf/vesc/vbms_inf_sat"
 "hwconf/seeed"
 "hwconf/waveshare/s3_touch_lcd4"
+"hwconf/waveshare/p4_touch_lcd43"
 
 "lispBM"
 "lispBM/include"

@@ -15,7 +15,7 @@ RUN mkdir -p /root/esp/
 RUN git clone -b v5.5.4 --recursive https://github.com/espressif/esp-idf.git /root/esp/esp-idf-v5.5.4
 
 # Step 3. Set up the Tools
-RUN /root/esp/esp-idf-v5.5.4/install.sh esp32c3 esp32c6 esp32s3
+RUN /root/esp/esp-idf-v5.5.4/install.sh esp32c3 esp32c6 esp32s3 esp32p4
 
 # Step 4. Prepare the build Environment
 RUN echo ". /root/esp/esp-idf-v5.5.4/export.sh" > /root/.bashrc

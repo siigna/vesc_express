@@ -1,0 +1,25 @@
+# Bring-up overlay: VESC comms on UART0, console off.
+#
+# For a board whose only reachable serial port is a USB-to-UART bridge wired
+# to the UART0 pads. Pair it with -DBRINGUP_UART=1, which switches comms to
+# that UART and leaves CAN undefined so the two do not fight over the pins.
+#
+#   idf.py -DHW_NAME="..." -DBRINGUP_UART=1 \
+#       -DEXTRA_SDKCONFIG=sdkconfig.bringup_uart build
+#
+# The console is off on purpose, and this is the part worth knowing: the IDF
+# console and comm_uart cannot share one UART. With the console on UART0 as
+# well, comm_uart_init reconfigures the port underneath it -- console output
+# stops dead at that line in the boot log, and the packet protocol does not
+# answer either, so you get neither. One or the other.
+#
+# Comms win here because they are what lets a script be uploaded, run,
+# stopped and inspected; logs are a convenience by comparison. For a
+# logs-only build, drop -DBRINGUP_UART and set the console to UART0 instead.
+#
+# Not for anything that drives a motor: on boards where those pads carry a
+# CAN transceiver, a console here would talk onto the bus.
+CONFIG_ESP_CONSOLE_NONE=y
+CONFIG_ESP_CONSOLE_SECONDARY_NONE=y
+CONFIG_LOG_DEFAULT_LEVEL_NONE=y
+CONFIG_LOG_DEFAULT_LEVEL=0

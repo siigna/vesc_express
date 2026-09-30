@@ -17,6 +17,10 @@
 
 #include "disp_jd9165.h"
 
+#if defined(SCRIPT_ENGINE_LISP)
+#include "lispif.h"
+#endif /* SCRIPT_ENGINE_LISP */
+
 #include "soc/soc_caps.h"
 
 #if SOC_MIPI_DSI_SUPPORTED

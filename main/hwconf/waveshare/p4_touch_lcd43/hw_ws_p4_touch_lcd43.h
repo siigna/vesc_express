@@ -50,9 +50,70 @@
 #define HW_NAME                 "WS P4 Touch LCD 4.3"
 #define HW_TARGET               "esp32p4_ws_lcd43"
 
-/* GPIO37/38 carry the CAN transceiver on this board and are also UART0, so
- * there is no console UART. Logs go out over USB-Serial/JTAG. */
+/*
+ * GPIO37/38 carry the CAN transceiver on this board and are also UART0.
+ *
+ * Normally that means no console UART and logs go out over USB-Serial/JTAG.
+ * On this board, though, USB-Serial/JTAG is not exposed at all: the port
+ * marked "USB" is the P4's USB 2.0 OTG, which only enumerates if the running
+ * firmware implements a USB device class, and the port marked "USB to UART"
+ * is a CH343 bridge -- wired, inevitably, to those same UART0 pads. Nothing
+ * appeared on a host with either the factory firmware or ours, on either
+ * port, which is what ruled USB-Serial/JTAG out: the ROM would have
+ * enumerated it regardless of firmware.
+ *
+ * So a board with no dash package loaded has no way to be reached. Defining
+ * BRINGUP_UART moves comms and the console onto UART0 through that bridge,
+ * which is the only channel this board actually has:
+ *
+ *   idf.py -DHW_NAME="WS P4 Touch LCD 4.3" -DBRINGUP_UART=1 \
+ *       -DEXTRA_SDKCONFIG=sdkconfig.bringup_uart build
+ *
+ * It deliberately also leaves CAN_TX_GPIO_NUM undefined, which stops main.c
+ * starting CAN. Two peripherals cannot drive one pad, and the alternative is
+ * the TWAI controller and a UART fighting over GPIO37/38 -- with a
+ * transceiver attached, that means the console talking onto the vehicle bus.
+ *
+ * This is a bring-up configuration. Do not put it on a vehicle.
+ */
+/*
+ * Two bring-up modes, because one UART cannot carry both and the difference
+ * matters while diagnosing:
+ *
+ *   BRINGUP_UART      VESC comms on UART0. Console off. Lets a script be
+ *                     uploaded, run and inspected, but a panic is silent.
+ *   BRINGUP_CONSOLE   Console on UART0, no comms. Shows the whole boot and
+ *                     any panic, which is the only way to tell "not
+ *                     answering" from "crashed before it could".
+ *
+ * Both leave CAN undefined. On this board the transceiver is on GPIO37/38 --
+ * the UART0 pads -- so CAN and either mode would be two peripherals driving
+ * one pin pair.
+ */
+#if defined(BRINGUP_UART)
+/*
+ * UART_NUM has to be defined here, and not because this board needs a
+ * non-default port. hwconf/hw.h reads
+ *
+ *     #ifndef UART_NUM
+ *     #define HW_NO_UART
+ *     #define UART_NUM 0
+ *     ...
+ *
+ * so a board that sets HW_UART_COMM, UART_TX and UART_RX but leaves UART_NUM
+ * alone gets HW_NO_UART defined for it as a side effect -- and main.c then
+ * skips comm_uart_init entirely. The result is a board that boots normally,
+ * logs normally, and never answers a packet, with nothing anywhere saying
+ * why. Defining UART_NUM is what suppresses that block.
+ */
+#define HW_UART_COMM
+#define UART_NUM                0
+#define UART_BAUDRATE           115200
+#define UART_TX                 37
+#define UART_RX                 38
+#else
 #define HW_NO_UART
+#endif
 
 #define HW_INIT_HOOK()          hw_init()
 
@@ -64,8 +125,10 @@
  * instead, which still runs before lispif_init on the default path. */
 
 // CAN (onboard transceiver)
+#if !defined(BRINGUP_UART) && !defined(BRINGUP_CONSOLE)
 #define CAN_TX_GPIO_NUM         37
 #define CAN_RX_GPIO_NUM         38
+#endif
 
 // Display. Panel reset, and the DSI lane rate disp-load-st7701 is given.
 #define DISP_WIDTH              800     // after (ext-disp-orientation 1)

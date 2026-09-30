@@ -253,6 +253,16 @@ else()
     add_compile_definitions(SCRIPT_ENGINE_LISP=1)
 endif()
 
+# Bring-up builds for boards whose only reachable port is a USB-to-UART
+# bridge. See the BRINGUP_UART block in a board header for what it changes and
+# why it is not a shipping configuration.
+if(BRINGUP_UART)
+    add_compile_definitions(BRINGUP_UART=1)
+endif()
+if(BRINGUP_CONSOLE)
+    add_compile_definitions(BRINGUP_CONSOLE=1)
+endif()
+
 # Clay is ~80 kB of flash and is only usable on a board with a display, so it
 # is enabled for the targets with room rather than for everything. The C3 in
 # particular has very little app partition left.

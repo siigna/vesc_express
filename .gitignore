@@ -29,3 +29,11 @@ main/script/test/timeout-*
 main/script/test/leak-*
 build_lua/
 build_lisp/
+
+# Per-configuration build directories. The tree already ignores build/ and a
+# few build_* names individually; these are the ones this branch adds.
+build_p4_lisp/
+build_p4_bringup/
+build_p4_console/
+build_s3_lisp/
+build_s3_lua/

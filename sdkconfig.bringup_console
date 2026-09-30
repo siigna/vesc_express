@@ -1,0 +1,20 @@
+# Bring-up overlay: console on UART0, no VESC comms.
+#
+# Pair with -DBRINGUP_CONSOLE=1. The counterpart of sdkconfig.bringup_uart:
+# that one gives comms and no logs, this one gives logs and no comms. Use it
+# when a board is silent and you need to know whether it is failing to answer
+# or failing to boot -- with the console off, a panic looks exactly like a
+# board that is simply not listening.
+#
+# Not for anything that drives a motor: where those pads carry a CAN
+# transceiver, this talks onto the bus.
+CONFIG_ESP_CONSOLE_UART_DEFAULT=y
+CONFIG_ESP_CONSOLE_UART_NUM=0
+CONFIG_ESP_CONSOLE_SECONDARY_NONE=y
+# INFO, not DEBUG. At debug level the PSRAM timing tuning prints from inside
+# its own calibration loop, and on this board that never converges: the log
+# fills with thousands of "MSPI DQS: set to best phase" lines and the chip
+# never reaches app_main. Raising the log level past INFO here does not give
+# you more information, it stops the board booting.
+CONFIG_LOG_DEFAULT_LEVEL_INFO=y
+CONFIG_LOG_DEFAULT_LEVEL=3

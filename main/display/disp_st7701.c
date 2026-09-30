@@ -17,6 +17,10 @@
 
 #include "disp_st7701.h"
 
+#if defined(SCRIPT_ENGINE_LISP)
+#include "lispif.h"
+#endif /* SCRIPT_ENGINE_LISP */
+
 #if CONFIG_IDF_TARGET_ESP32P4
 
 #include <string.h>
@@ -392,6 +396,7 @@ void disp_st7701_reset(void) {
     }
 }
 
+#if defined(SCRIPT_ENGINE_LISP)
 lbm_value disp_st7701_ext_orientation(lbm_value *args, lbm_uint argn) {
     LBM_CHECK_ARGN_NUMBER(1);
     int rot = lbm_dec_as_i32(args[0]);
@@ -403,6 +408,7 @@ lbm_value disp_st7701_ext_orientation(lbm_value *args, lbm_uint argn) {
     m_rotation = rot;
     return ENC_SYM_TRUE;
 }
+#endif /* SCRIPT_ENGINE_LISP */
 
 bool disp_st7701_init(int pin_rst, int lane_mbps) {
     m_pin_rst = pin_rst;

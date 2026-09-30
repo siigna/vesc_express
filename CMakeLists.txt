@@ -105,6 +105,25 @@ if(DEFINED HW_NAME AND DEFINED HW_TARGET AND DEFINED HW_FILE_NAME)
     endif()
     set(SDKCONFIG_DEFAULTS ${SDKCONFIG_DEFAULTS_FILE})
 
+    # Optional overlay appended after the board's own defaults, for a config
+    # that is a variation on a board rather than a board of its own -- turning
+    # the debug console back on, say. Later files win, so an overlay only has
+    # to name what it changes:
+    #
+    #   idf.py -DHW_NAME="..." -DEXTRA_SDKCONFIG=sdkconfig.debug_console build
+    #
+    # This exists because SDKCONFIG_DEFAULTS is derived from HW_TARGET just
+    # above, so passing it on the command line has no effect.
+    if(DEFINED EXTRA_SDKCONFIG AND NOT "${EXTRA_SDKCONFIG}" STREQUAL "")
+        foreach(overlay ${EXTRA_SDKCONFIG})
+            if(NOT EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/${overlay}")
+                message(FATAL_ERROR "EXTRA_SDKCONFIG file not found: ${overlay}")
+            endif()
+            list(APPEND SDKCONFIG_DEFAULTS ${overlay})
+            message(STATUS "Appending sdkconfig overlay ${overlay}")
+        endforeach()
+    endif()
+
     # Auto-generate QML files if any *.qml files exist alongside the HW config
     get_filename_component(HW_DIR ${HW_FILE_NAME} DIRECTORY)
     file(GLOB QMLUI_QML_SRCS "${CMAKE_CURRENT_SOURCE_DIR}/${HW_DIR}/*.qml")

@@ -338,8 +338,12 @@ bool disp_st7701_rgb_init(const disp_st7701_rgb_cfg_t *cfg) {
 		.bits_per_pixel = 16,
 		.psram_trans_align = 64,
 		.num_fbs = 1,
-		// Without a bounce buffer the S3 must fetch every pixel from PSRAM in
-		// time for the scanout, which it cannot reliably do at this size.
+		// Ten lines of bounce buffer in internal RAM. This decouples the
+		// scanout from PSRAM latency and is what allows a higher
+		// pixel clock, at the cost of a per-line refill interrupt. Whether this
+		// panel needs it has not been measured -- 480x480 at 16 MHz is only
+		// 32 MB/s, well inside octal PSRAM -- so a single PSRAM framebuffer with
+		// no bounce buffer may work here and would remove that interrupt.
 		.bounce_buffer_size_px = cfg->width * 10,
 		.de_gpio_num    = cfg->pin_de,
 		.pclk_gpio_num  = cfg->pin_pclk,
@@ -347,22 +351,23 @@ bool disp_st7701_rgb_init(const disp_st7701_rgb_cfg_t *cfg) {
 		.hsync_gpio_num = cfg->pin_hsync,
 		.disp_gpio_num  = -1,
 		/*
-		 * UNRESOLVED, and the next thing to settle on this board.
+		 * A framebuffer in PSRAM is refilled into the bounce buffer from an
+		 * interrupt, and that interrupt cannot run while the external memory
+		 * cache is disabled -- which is exactly what a write to the main flash
+		 * does. The IDF states the constraint outright: the LCD "CANNOT
+		 * function if the external memory cache is disabled, such as during OTA
+		 * or NVS writes to the main flash."
 		 *
-		 * A framebuffer in PSRAM is DMAed out continuously by the RGB
-		 * peripheral, and a flash write disables the cache while it runs. On
-		 * the Waveshare S3 Touch LCD 4 that combination panics the CPU with
-		 * "Cache error / MMU entry fault", repeatably, in a boot loop: the
-		 * dash package writes roughly seventy-five eeprom entries when it
-		 * restores defaults, and each one is a flash operation while this
-		 * panel is refreshing.
+		 * On the Waveshare S3 Touch LCD 4 that showed up as a repeatable
+		 * "Cache error / MMU entry fault" boot loop, because the dash package
+		 * writes roughly seventy-five eeprom entries when it restores defaults
+		 * and every one of them is a flash operation while this panel refreshes.
 		 *
-		 * The bounce buffer below is meant to decouple them and is not
-		 * sufficient on its own here. What has not been tried: the IDF's own
-		 * options for this case -- refresh_on_demand, a larger bounce buffer,
-		 * or keeping the framebuffer out of PSRAM entirely -- and checking
-		 * whether the eeprom writes can be deferred until after the panel is
-		 * up rather than performed during startup.
+		 * The fix is not in this file: the board's sdkconfig enables
+		 * CONFIG_SPIRAM_XIP_FROM_PSRAM, which keeps the cache active across a
+		 * flash write by running code out of PSRAM. A board that drives an RGB
+		 * panel from PSRAM and also writes flash at runtime needs that option,
+		 * and a bounce buffer alone does not substitute for it.
 		 */
 		.flags = {
 			.fb_in_psram = true,

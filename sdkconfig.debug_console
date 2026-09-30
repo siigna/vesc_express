@@ -1,0 +1,21 @@
+# Debug console overlay. Not a board config -- append it to one:
+#
+#   idf.py -B build_c_WS_S3_Touch_LCD_4 -DHW_NAME="WS S3 Touch LCD 4" \
+#       -DEXTRA_SDKCONFIG=sdkconfig.debug_console \
+#       build
+#
+# The shipped configs set ESP_CONSOLE_NONE and LOG_DEFAULT_LEVEL=0, so a board
+# that will not start its display gives you nothing to go on. This turns the
+# log back on over USB-Serial-JTAG.
+#
+# Console output and the VESC packet protocol then share the one USB endpoint.
+# That is untidy but works in both directions: the packet parser resyncs on the
+# 0x02 start byte and ignores the log text around it, and a host-side tool that
+# reads framed packets ignores it too.
+#
+# Keep this out of anything you flash to a bike. It costs flash for the format
+# strings and it narrates onto a link the ESC is also using.
+CONFIG_ESP_CONSOLE_USB_SERIAL_JTAG=y
+CONFIG_ESP_CONSOLE_SECONDARY_NONE=y
+CONFIG_LOG_DEFAULT_LEVEL_INFO=y
+CONFIG_LOG_DEFAULT_LEVEL=3

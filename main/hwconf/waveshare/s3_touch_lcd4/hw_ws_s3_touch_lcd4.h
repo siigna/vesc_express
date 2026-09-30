@@ -19,8 +19,12 @@
  * Waveshare ESP32-S3-Touch-LCD-4
  *
  * ESP32-S3-N16R8, 4" 480x480 ST7701 over a parallel RGB bus, GT911 touch, and
- * an onboard CAN transceiver. HW_TARGET reuses the N16R8 sdkconfig because it
- * is the same module.
+ * an onboard CAN transceiver.
+ *
+ * HW_TARGET gets its own sdkconfig rather than reusing the N16R8 one, even
+ * though it is the same module, because an RGB panel here has to coexist with
+ * flash writes. That needs XIP from PSRAM; see the header of
+ * sdkconfig.defaults.esp32s3_ws_lcd4.
  *
  * Pin map taken from Waveshare's own board support, cross-checked against
  * payalneg/Super_VESC_DIsplay which runs on this board.
@@ -30,7 +34,7 @@
 #define HW_WS_S3_TOUCH_LCD4_H_
 
 #define HW_NAME                 "WS S3 Touch LCD 4"
-#define HW_TARGET               "esp32s3_n16r8"
+#define HW_TARGET               "esp32s3_ws_lcd4"
 #define HW_UART_COMM
 
 #define HW_INIT_HOOK()          hw_init()

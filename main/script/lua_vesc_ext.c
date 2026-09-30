@@ -39,6 +39,8 @@
 #include "comm_can.h"
 #include "flash_helper.h"
 #include "adc.h"
+#include "utils.h"
+#include "datatypes.h"
 
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
@@ -167,6 +169,275 @@ static int l_can_ping(lua_State *L) {
 	return 2;
 }
 
+/*
+ * Status getters for other units on the bus.
+ *
+ * Every one returns nil when that id has not reported, rather than zero. A
+ * controller that is switched off, unplugged or not yet seen is a different
+ * thing from one reporting zero current, and collapsing the two is how a
+ * dash ends up displaying a confident 0 A for a motor that is not there.
+ * Field mappings were read out of the lisp implementations rather than
+ * guessed, so the two engines report the same numbers.
+ */
+static int l_canget_current(lua_State *L) {
+	can_status_msg *st = comm_can_get_status_msg_id((int)luaL_checkinteger(L, 1));
+	if (!st) {
+		lua_pushnil(L);
+		return 1;
+	}
+	lua_pushnumber(L, (lua_Number)st->current);
+	return 1;
+}
+
+static int l_canget_current_dir(lua_State *L) {
+	can_status_msg *st = comm_can_get_status_msg_id((int)luaL_checkinteger(L, 1));
+	if (!st) {
+		lua_pushnil(L);
+		return 1;
+	}
+	// Signed by direction of travel, which is what the lisp getter does.
+	float sign = st->duty >= 0.0f ? 1.0f : -1.0f;
+	lua_pushnumber(L, (lua_Number)(st->current * sign));
+	return 1;
+}
+
+static int l_canget_duty(lua_State *L) {
+	can_status_msg *st = comm_can_get_status_msg_id((int)luaL_checkinteger(L, 1));
+	if (!st) {
+		lua_pushnil(L);
+		return 1;
+	}
+	lua_pushnumber(L, (lua_Number)st->duty);
+	return 1;
+}
+
+static int l_canget_rpm(lua_State *L) {
+	can_status_msg *st = comm_can_get_status_msg_id((int)luaL_checkinteger(L, 1));
+	if (!st) {
+		lua_pushnil(L);
+		return 1;
+	}
+	lua_pushnumber(L, (lua_Number)st->rpm);
+	return 1;
+}
+
+static int l_canget_current_in(lua_State *L) {
+	can_status_msg_4 *st = comm_can_get_status_msg_4_id((int)luaL_checkinteger(L, 1));
+	if (!st) {
+		lua_pushnil(L);
+		return 1;
+	}
+	lua_pushnumber(L, (lua_Number)st->current_in);
+	return 1;
+}
+
+static int l_canget_temp_fet(lua_State *L) {
+	can_status_msg_4 *st = comm_can_get_status_msg_4_id((int)luaL_checkinteger(L, 1));
+	if (!st) {
+		lua_pushnil(L);
+		return 1;
+	}
+	lua_pushnumber(L, (lua_Number)st->temp_fet);
+	return 1;
+}
+
+static int l_canget_temp_motor(lua_State *L) {
+	can_status_msg_4 *st = comm_can_get_status_msg_4_id((int)luaL_checkinteger(L, 1));
+	if (!st) {
+		lua_pushnil(L);
+		return 1;
+	}
+	lua_pushnumber(L, (lua_Number)st->temp_motor);
+	return 1;
+}
+
+static int l_canget_vin(lua_State *L) {
+	can_status_msg_5 *st = comm_can_get_status_msg_5_id((int)luaL_checkinteger(L, 1));
+	if (!st) {
+		lua_pushnil(L);
+		return 1;
+	}
+	lua_pushnumber(L, (lua_Number)st->v_in);
+	return 1;
+}
+
+static int l_canget_tacho(lua_State *L) {
+	can_status_msg_5 *st = comm_can_get_status_msg_5_id((int)luaL_checkinteger(L, 1));
+	if (!st) {
+		lua_pushnil(L);
+		return 1;
+	}
+	lua_pushinteger(L, (lua_Integer)st->tacho_value);
+	return 1;
+}
+
+static int l_canget_ppm(lua_State *L) {
+	can_status_msg_6 *st = comm_can_get_status_msg_6_id((int)luaL_checkinteger(L, 1));
+	if (!st) {
+		lua_pushnil(L);
+		return 1;
+	}
+	lua_pushnumber(L, (lua_Number)st->ppm);
+	return 1;
+}
+
+static int l_canget_adc(lua_State *L) {
+	can_status_msg_6 *st = comm_can_get_status_msg_6_id((int)luaL_checkinteger(L, 1));
+	int ch = (int)luaL_optinteger(L, 2, 1);
+	if (!st) {
+		lua_pushnil(L);
+		return 1;
+	}
+	switch (ch) {
+	case 1: lua_pushnumber(L, (lua_Number)st->adc_1); break;
+	case 2: lua_pushnumber(L, (lua_Number)st->adc_2); break;
+	case 3: lua_pushnumber(L, (lua_Number)st->adc_3); break;
+	default:
+		return luaL_error(L, "canget_adc: channel %d is not 1, 2 or 3", ch);
+	}
+	return 1;
+}
+
+/*
+ * Age of the last status frame of a given kind, in seconds, or nil if none
+ * has arrived.
+ *
+ * This is the one to check before trusting any of the getters above: the
+ * others hand back the last value seen with no indication of when that was,
+ * so a unit that dropped off the bus a minute ago still reads plausibly.
+ */
+static int l_can_msg_age(lua_State *L) {
+	int id = (int)luaL_checkinteger(L, 1);
+	int msg = (int)luaL_optinteger(L, 2, 1);
+
+	float rx_time = -1.0f;
+	switch (msg) {
+	case 1: {
+		can_status_msg *st = comm_can_get_status_msg_id(id);
+		if (st) { rx_time = UTILS_AGE_S(st->rx_time); }
+	} break;
+	case 2: {
+		can_status_msg_2 *st = comm_can_get_status_msg_2_id(id);
+		if (st) { rx_time = UTILS_AGE_S(st->rx_time); }
+	} break;
+	case 3: {
+		can_status_msg_3 *st = comm_can_get_status_msg_3_id(id);
+		if (st) { rx_time = UTILS_AGE_S(st->rx_time); }
+	} break;
+	case 4: {
+		can_status_msg_4 *st = comm_can_get_status_msg_4_id(id);
+		if (st) { rx_time = UTILS_AGE_S(st->rx_time); }
+	} break;
+	case 5: {
+		can_status_msg_5 *st = comm_can_get_status_msg_5_id(id);
+		if (st) { rx_time = UTILS_AGE_S(st->rx_time); }
+	} break;
+	case 6: {
+		can_status_msg_6 *st = comm_can_get_status_msg_6_id(id);
+		if (st) { rx_time = UTILS_AGE_S(st->rx_time); }
+	} break;
+	default:
+		return luaL_error(L, "can_msg_age: status message %d is not 1..6", msg);
+	}
+
+	if (rx_time < 0.0f) {
+		lua_pushnil(L);
+	} else {
+		lua_pushnumber(L, (lua_Number)rx_time);
+	}
+	return 1;
+}
+
+// Units seen on the bus, as a table of ids.
+static int l_can_list_devs(lua_State *L) {
+	lua_newtable(L);
+	int n = 0;
+	for (int i = 0; i < CAN_STATUS_MSGS_TO_STORE; i++) {
+		can_status_msg *msg = comm_can_get_status_msg_index(i);
+		if (!msg || msg->id < 0 || UTILS_AGE_S(msg->rx_time) >= 2.0) {
+			continue;
+		}
+		lua_pushinteger(L, (lua_Integer)msg->id);
+		lua_rawseti(L, -2, ++n);
+	}
+	return 1;
+}
+
+// ------------------------------------------------------------ can control --
+
+/*
+ * Commands to other units.
+ *
+ * The id is checked before every one of these. comm_can_set_* takes a
+ * uint8_t, so a negative or oversized id would wrap silently and address a
+ * unit the script did not mean -- on a vehicle that is a command going to the
+ * wrong motor.
+ */
+static uint8_t check_can_id(lua_State *L, int idx) {
+	lua_Integer id = luaL_checkinteger(L, idx);
+	if (id < 0 || id > 253) {
+		luaL_error(L, "CAN id %d is outside 0..253", (int)id);
+	}
+	return (uint8_t)id;
+}
+
+static int l_canset_current(lua_State *L) {
+	uint8_t id = check_can_id(L, 1);
+	float cur = (float)luaL_checknumber(L, 2);
+	if (lua_gettop(L) >= 3) {
+		comm_can_set_current_off_delay(id, cur, (float)luaL_checknumber(L, 3));
+	} else {
+		comm_can_set_current(id, cur);
+	}
+	return 0;
+}
+
+static int l_canset_current_rel(lua_State *L) {
+	uint8_t id = check_can_id(L, 1);
+	float rel = (float)luaL_checknumber(L, 2);
+	if (lua_gettop(L) >= 3) {
+		comm_can_set_current_rel_off_delay(id, rel, (float)luaL_checknumber(L, 3));
+	} else {
+		comm_can_set_current_rel(id, rel);
+	}
+	return 0;
+}
+
+static int l_canset_duty(lua_State *L) {
+	comm_can_set_duty(check_can_id(L, 1), (float)luaL_checknumber(L, 2));
+	return 0;
+}
+
+static int l_canset_brake(lua_State *L) {
+	comm_can_set_current_brake(check_can_id(L, 1), (float)luaL_checknumber(L, 2));
+	return 0;
+}
+
+static int l_canset_brake_rel(lua_State *L) {
+	comm_can_set_current_brake_rel(check_can_id(L, 1), (float)luaL_checknumber(L, 2));
+	return 0;
+}
+
+static int l_canset_rpm(lua_State *L) {
+	comm_can_set_rpm(check_can_id(L, 1), (float)luaL_checknumber(L, 2));
+	return 0;
+}
+
+static int l_canset_pos(lua_State *L) {
+	comm_can_set_pos(check_can_id(L, 1), (float)luaL_checknumber(L, 2));
+	return 0;
+}
+
+static int l_canset_handbrake(lua_State *L) {
+	comm_can_set_handbrake(check_can_id(L, 1), (float)luaL_checknumber(L, 2));
+	return 0;
+}
+
+static int l_canset_handbrake_rel(lua_State *L) {
+	comm_can_set_handbrake_rel(check_can_id(L, 1), (float)luaL_checknumber(L, 2));
+	return 0;
+}
+
 // ---------------------------------------------------------------- eeprom ---
 
 /*
@@ -273,6 +544,31 @@ static const luaL_Reg vesc_fns[] = {
 	{"can_send_sid", l_can_send_sid},
 	{"can_send_eid", l_can_send_eid},
 	{"can_ping", l_can_ping},
+	{"can_list_devs", l_can_list_devs},
+
+	{"canget_current", l_canget_current},
+	{"canget_current_dir", l_canget_current_dir},
+	{"canget_current_in", l_canget_current_in},
+	{"canget_duty", l_canget_duty},
+	{"canget_rpm", l_canget_rpm},
+	{"canget_temp_fet", l_canget_temp_fet},
+	{"canget_temp_motor", l_canget_temp_motor},
+	{"canget_vin", l_canget_vin},
+	{"canget_ppm", l_canget_ppm},
+	{"canget_adc", l_canget_adc},
+	{"canget_tacho", l_canget_tacho},
+	{"canget_dist", l_canget_tacho},
+	{"can_msg_age", l_can_msg_age},
+
+	{"canset_current", l_canset_current},
+	{"canset_current_rel", l_canset_current_rel},
+	{"canset_duty", l_canset_duty},
+	{"canset_brake", l_canset_brake},
+	{"canset_brake_rel", l_canset_brake_rel},
+	{"canset_rpm", l_canset_rpm},
+	{"canset_pos", l_canset_pos},
+	{"canset_handbrake", l_canset_handbrake},
+	{"canset_handbrake_rel", l_canset_handbrake_rel},
 
 	{"eeprom_store_i", l_eeprom_store_i},
 	{"eeprom_store_f", l_eeprom_store_f},

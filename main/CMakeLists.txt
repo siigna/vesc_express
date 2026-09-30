@@ -171,6 +171,7 @@ if(SCRIPT_ENGINE STREQUAL "lua")
         "script/script_pack.c"
         "script/script_lua.c"
         "script/lua_vesc_ext.c"
+        "script/lua_vesc_io.c"
         "script/luaif.c"
     )
 

@@ -1,0 +1,352 @@
+/*
+	This file is part of the VESC firmware.
+
+	The VESC firmware is free software: you can redistribute it and/or modify
+    it under the terms of the GNU General Public License as published by
+    the Free Software Foundation, either version 3 of the License, or
+    (at your option) any later version.
+
+    The VESC firmware is distributed in the hope that it will be useful,
+    but WITHOUT ANY WARRANTY; without even the implied warranty of
+    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+    GNU General Public License for more details.
+
+    You should have received a copy of the GNU General Public License
+    along with this program.  If not, see <http://www.gnu.org/licenses/>.
+ */
+
+#include "script_lua.h"
+
+#include "lauxlib.h"
+#include "lualib.h"
+
+#include <string.h>
+#include <stdlib.h>
+#include <stdio.h>
+
+struct script_lua {
+	lua_State *L;
+	script_lua_cfg_t cfg;
+	size_t mem_used;
+	size_t mem_peak;
+};
+
+/*
+ * Allocator with a ceiling.
+ *
+ * Lua routes every allocation through here and treats a NULL return as an
+ * out-of-memory error it can raise and a pcall can catch. That is the whole
+ * mechanism for containing a runaway script: it hits its own limit and dies
+ * with a traceback, rather than exhausting the heap that the comms stack and
+ * the rest of the firmware are sharing.
+ *
+ * The accounting is exact rather than sampled because it is also what the
+ * GET_STATS reply reports, and a script author tuning memory wants a number
+ * that means something.
+ */
+static void *l_alloc(void *ud, void *ptr, size_t osize, size_t nsize) {
+	script_lua_t *s = (script_lua_t *)ud;
+
+	if (nsize == 0) {
+		free(ptr);
+		s->mem_used -= osize;
+		return NULL;
+	}
+
+	if (s->cfg.mem_limit > 0) {
+		size_t after = s->mem_used + nsize - osize;
+		// Refuse growth past the ceiling. Shrinking is always allowed, and
+		// checking `nsize > osize` first keeps a shrink from tripping the
+		// limit when usage is already over it after a limit change.
+		if (nsize > osize && after > s->cfg.mem_limit) {
+			return NULL;
+		}
+	}
+
+	void *np = realloc(ptr, nsize);
+	if (!np) {
+		return NULL;
+	}
+
+	s->mem_used = s->mem_used + nsize - osize;
+	if (s->mem_used > s->mem_peak) {
+		s->mem_peak = s->mem_used;
+	}
+	return np;
+}
+
+/*
+ * Instruction hook. Runs every cfg.hook_count VM instructions.
+ *
+ * This is the equivalent of lbm_set_eval_step_quota in the lisp engine, and
+ * it is what makes a script interruptible at all: without it, `while true do
+ * end` is unkillable short of a watchdog reset, and stopping a script from
+ * VESC Tool would not work.
+ *
+ * luaL_error raises, which unwinds to the enclosing pcall in script_lua_run.
+ * That is deliberate -- killing the task instead would leak whatever the
+ * script held and leave the interpreter unusable without a full restart.
+ */
+static void l_hook(lua_State *L, lua_Debug *ar) {
+	(void)ar;
+	script_lua_t *s = NULL;
+	lua_getallocf(L, (void **)&s);
+	if (!s) {
+		return;
+	}
+
+	if (s->cfg.on_tick) {
+		s->cfg.on_tick();
+	}
+
+	if (s->cfg.should_stop && s->cfg.should_stop()) {
+		luaL_error(L, "script stopped");
+	}
+}
+
+// print(), routed to the host instead of stdout. Mirrors Lua's own print:
+// tostring each argument, tab separated.
+static int l_print(lua_State *L) {
+	script_lua_t *s = NULL;
+	lua_getallocf(L, (void **)&s);
+
+	int n = lua_gettop(L);
+	luaL_Buffer b;
+	luaL_buffinit(L, &b);
+
+	for (int i = 1; i <= n; i++) {
+		size_t len = 0;
+		const char *piece = luaL_tolstring(L, i, &len);
+		if (i > 1) {
+			luaL_addchar(&b, '\t');
+		}
+		luaL_addlstring(&b, piece, len);
+		lua_pop(L, 1);	// luaL_tolstring pushes its result
+	}
+
+	luaL_pushresult(&b);
+	const char *msg = lua_tostring(L, -1);
+	if (s && s->cfg.print && msg) {
+		s->cfg.print(msg);
+	}
+	lua_pop(L, 1);
+	return 0;
+}
+
+/*
+ * require(), resolving only against the import table in the flashed
+ * container.
+ *
+ * Lua's own searchers look at the filesystem and at loaded C libraries.
+ * Neither exists here, and both would be a way out of the sandbox, so this
+ * replaces require() outright rather than adding a searcher to package.path
+ * -- there is no package library in this build to add one to.
+ *
+ * This is the counterpart of VESC Tool's lisp import bundling: the host-side
+ * packer walks require() calls and appends each module's source to the
+ * container, and this finds them by name at runtime.
+ */
+static int l_require(lua_State *L) {
+	const char *name = luaL_checkstring(L, 1);
+
+	script_lua_t *s = NULL;
+	lua_getallocf(L, (void **)&s);
+	if (!s || !s->cfg.blob) {
+		return luaL_error(L, "require '%s': no bundled modules in this script", name);
+	}
+
+	// Already loaded? Return the cached value, as real require does, so a
+	// module required from two places runs once.
+	lua_getfield(L, LUA_REGISTRYINDEX, "_SCRIPT_LOADED");
+	lua_getfield(L, -1, name);
+	if (!lua_isnil(L, -1)) {
+		return 1;
+	}
+	lua_pop(L, 1);
+
+	const uint8_t *data = NULL;
+	int32_t data_len = 0;
+	if (!script_pack_import(s->cfg.blob, name, &data, &data_len)) {
+		return luaL_error(L, "require '%s': not bundled in this script", name);
+	}
+
+	char chunkname[64];
+	snprintf(chunkname, sizeof(chunkname), "@%s", name);
+
+	if (luaL_loadbuffer(L, (const char *)data, (size_t)data_len, chunkname) != LUA_OK) {
+		return luaL_error(L, "require '%s': %s", name, lua_tostring(L, -1));
+	}
+
+	lua_pushstring(L, name);
+	lua_call(L, 1, 1);	// Errors propagate to the caller's pcall.
+
+	// A module returning nothing is recorded as true, again matching require.
+	if (lua_isnil(L, -1)) {
+		lua_pop(L, 1);
+		lua_pushboolean(L, 1);
+	}
+
+	lua_pushvalue(L, -1);
+	lua_setfield(L, -3, name);	// _SCRIPT_LOADED[name] = value
+	return 1;
+}
+
+/*
+ * The sandbox.
+ *
+ * Opened: base (minus the dangerous entries), coroutine, string, table, math.
+ * Never opened: io and os, which reach the filesystem and the clock and are
+ * not compiled into this build at all; package, which loads C libraries;
+ * debug, which can reach around everything else; utf8, merely unused.
+ *
+ * Removed from base afterwards: dofile and loadfile, which want a
+ * filesystem; load, because a script that can compile a string at runtime
+ * can defeat any static review of what got flashed; and collectgarbage,
+ * which lets a script disable the GC on a device whose memory ceiling is the
+ * only thing protecting the rest of the firmware.
+ */
+static void install_sandbox(lua_State *L) {
+	static const luaL_Reg libs[] = {
+		{LUA_GNAME, luaopen_base},
+		{LUA_COLIBNAME, luaopen_coroutine},
+		{LUA_STRLIBNAME, luaopen_string},
+		{LUA_TABLIBNAME, luaopen_table},
+		{LUA_MATHLIBNAME, luaopen_math},
+		{NULL, NULL},
+	};
+
+	for (const luaL_Reg *lib = libs; lib->func; lib++) {
+		luaL_requiref(L, lib->name, lib->func, 1);
+		lua_pop(L, 1);
+	}
+
+	static const char *const strip[] = {
+		"dofile", "loadfile", "load", "collectgarbage", NULL,
+	};
+	for (const char *const *n = strip; *n; n++) {
+		lua_pushnil(L);
+		lua_setglobal(L, *n);
+	}
+
+	lua_pushcfunction(L, l_print);
+	lua_setglobal(L, "print");
+
+	lua_pushcfunction(L, l_require);
+	lua_setglobal(L, "require");
+
+	// Module cache for require, kept in the registry where scripts cannot
+	// reach it.
+	lua_newtable(L);
+	lua_setfield(L, LUA_REGISTRYINDEX, "_SCRIPT_LOADED");
+
+	// The table bindings attach to.
+	lua_newtable(L);
+	lua_setglobal(L, "vesc");
+}
+
+script_lua_t *script_lua_open(const script_lua_cfg_t *cfg) {
+	if (!cfg) {
+		return NULL;
+	}
+
+	script_lua_t *s = calloc(1, sizeof(script_lua_t));
+	if (!s) {
+		return NULL;
+	}
+	s->cfg = *cfg;
+
+	s->L = lua_newstate(l_alloc, s);
+	if (!s->L) {
+		free(s);
+		return NULL;
+	}
+
+	install_sandbox(s->L);
+
+	/*
+	 * Generational collection. The incremental collector's pauses scale with
+	 * the size of the live set; generational mode keeps the common case to
+	 * young objects, which is what a control loop allocating small tables
+	 * every iteration produces. This board also runs comms and a display,
+	 * so a long stop-the-world pause is visible.
+	 */
+	lua_gc(s->L, LUA_GCGEN, 0, 0);
+
+	int count = cfg->hook_count > 0 ? cfg->hook_count : 1000;
+	lua_sethook(s->L, l_hook, LUA_MASKCOUNT, count);
+
+	return s;
+}
+
+void script_lua_close(script_lua_t *s) {
+	if (!s) {
+		return;
+	}
+	if (s->L) {
+		lua_close(s->L);
+	}
+	free(s);
+}
+
+/*
+ * Not taking a const pointer, despite the obvious static-analysis note: the
+ * whole purpose is to hand out a state the caller will mutate, by registering
+ * bindings or running the collector. A const parameter returning a mutable
+ * interior pointer would be a worse lie than the warning.
+ */
+// cppcheck-suppress constParameterPointer
+lua_State *script_lua_state(script_lua_t *s) {
+	return s ? s->L : NULL;
+}
+
+void script_lua_register(script_lua_t *s, const luaL_Reg *fns) {
+	if (!s || !s->L || !fns) {
+		return;
+	}
+
+	lua_getglobal(s->L, "vesc");
+	for (const luaL_Reg *f = fns; f->name; f++) {
+		lua_pushcfunction(s->L, f->func);
+		lua_setfield(s->L, -2, f->name);
+	}
+	lua_pop(s->L, 1);
+}
+
+size_t script_lua_mem_used(const script_lua_t *s) {
+	return s ? s->mem_used : 0;
+}
+
+size_t script_lua_mem_peak(const script_lua_t *s) {
+	return s ? s->mem_peak : 0;
+}
+
+bool script_lua_run(script_lua_t *s, const char *src, int32_t len,
+		const char *chunkname, char *err, size_t err_len) {
+	if (err && err_len > 0) {
+		err[0] = '\0';
+	}
+	if (!s || !s->L || !src) {
+		return false;
+	}
+
+	if (luaL_loadbuffer(s->L, src, (size_t)len,
+			chunkname ? chunkname : "=script") != LUA_OK) {
+		const char *msg = lua_tostring(s->L, -1);
+		if (err && err_len > 0 && msg) {
+			snprintf(err, err_len, "%s", msg);
+		}
+		lua_pop(s->L, 1);
+		return false;
+	}
+
+	if (lua_pcall(s->L, 0, 0, 0) != LUA_OK) {
+		const char *msg = lua_tostring(s->L, -1);
+		if (err && err_len > 0 && msg) {
+			snprintf(err, err_len, "%s", msg);
+		}
+		lua_pop(s->L, 1);
+		return false;
+	}
+
+	return true;
+}

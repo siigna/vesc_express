@@ -1,0 +1,23 @@
+# clang-tidy for the script engine's own sources.
+#
+# Scoped deliberately. WarningsAsErrors of '*' is a trap: it promotes
+# warnings raised inside system and toolchain headers, which this project
+# cannot fix and which differ between clang versions, so a green run on one
+# machine fails on another for reasons unrelated to the code.
+#
+# The analyzer and bugprone families are the ones that find real defects in
+# code like this -- bounds arithmetic over untrusted bytes. Style families are
+# left off: they would rewrite vendored idioms and the firmware's existing
+# conventions without finding bugs.
+Checks: >
+  clang-analyzer-*,
+  bugprone-*,
+  -clang-analyzer-security.insecureAPI.DeprecatedOrUnsafeBufferHandling,
+  -bugprone-easily-swappable-parameters
+
+WarningsAsErrors: >
+  clang-analyzer-*,
+  bugprone-*
+
+# Findings in headers we do not own are not actionable here.
+HeaderFilterRegex: '(script_pack|script_lua|lua_vesc_ext)\.h$'

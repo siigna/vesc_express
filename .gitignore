@@ -15,3 +15,15 @@ main/hwconf/**/*/qmlui_hw.h
 # feel like making that decision right now...
 managed_components/
 dependencies.lock
+
+# Script engine host test artifacts. Named individually rather than with a
+# broad pattern, because the sources live in the same directory.
+main/script/test/test_script_pack
+main/script/test/test_script_lua
+main/script/test/fuzz_script_pack
+main/script/test/lua_objs.a
+main/script/test/packed.bin
+main/script/test/.luaobj/
+main/script/test/crash-*
+main/script/test/timeout-*
+main/script/test/leak-*

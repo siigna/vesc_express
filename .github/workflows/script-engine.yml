@@ -1,0 +1,132 @@
+# Checks for the Lua script engine and the shared script container.
+#
+# Everything here runs without hardware and without ESP-IDF, on purpose: the
+# parts of a script engine that are worth automating are the ones that are
+# pure logic over untrusted input, and those are exactly the parts that a
+# board cannot help you test. The one job that does need a toolchain only
+# compiles, and says so.
+
+name: script engine
+
+on:
+  push:
+    paths:
+      - 'main/script/**'
+      - 'main/lua/**'
+      - 'tools/luapack.py'
+      - 'tools/script_ext_coverage.py'
+      - '.github/workflows/script-engine.yml'
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  host-tests:
+    name: host tests (asan + ubsan)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build and run
+        run: make -C main/script/test run
+      # The sanitizers are the point of this job. UBSan caught a signed shift
+      # overflow in the container parser on the first run it ever did, so a
+      # green tick here without them would mean less than it appears to.
+      - name: Confirm sanitizers were active
+        run: |
+          set -e
+          grep -q 'fsanitize=address' main/script/test/Makefile
+          grep -q 'fsanitize=undefined' main/script/test/Makefile
+
+  packer:
+    name: packer selftest
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: python3 tools/luapack.py --selftest
+      # The container layout is written in Python and read in C. This packs a
+      # fixture with the real tool and runs it through the real parser and the
+      # real interpreter, which is the only check that the two descriptions of
+      # the format still agree.
+      - name: End-to-end, packer through engine
+        run: make -C main/script/test run
+
+  fuzz:
+    name: fuzz the container parser
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install clang
+        run: sudo apt-get update && sudo apt-get install -y clang
+      # Short by default so it can run on every push. The property is not
+      # "does not crash" but that every import the parser reports lies inside
+      # the blob -- an out-of-range pointer here would be a remote read
+      # primitive, since the blob arrives over USB or BLE.
+      - run: make -C main/script/test fuzz FUZZ_SECONDS=120
+      - name: Keep any crash for inspection
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: fuzz-crashes
+          path: |
+            main/script/test/crash-*
+            main/script/test/timeout-*
+            main/script/test/leak-*
+
+  binding-coverage:
+    name: binding coverage
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      # A floor, not a target. Raise it as bindings land; the point is that it
+      # cannot silently go backwards when someone adds a lisp extension
+      # without a Lua counterpart.
+      - run: python3 tools/script_ext_coverage.py --min-coverage 4
+      - name: Report
+        run: python3 tools/script_ext_coverage.py --missing
+
+  static-analysis:
+    name: cppcheck and clang-tidy
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install tools
+        run: sudo apt-get update && sudo apt-get install -y cppcheck clang-tidy
+      # Scoped to the engine's own sources. Vendored Lua is excluded: it is
+      # not ours to change, and its warnings would drown everything that is.
+      - name: cppcheck
+        run: |
+          cppcheck --enable=warning,style,performance,portability \
+            --error-exitcode=1 --inline-suppr --quiet \
+            --suppress=missingIncludeSystem \
+            -I main/lua -I main/script \
+            main/script/script_pack.c main/script/script_lua.c
+      # Configuration lives in main/script/.clang-tidy so that running this
+      # locally and running it here cannot disagree. The Annex K checker is
+      # disabled there: it asks for memset_s, which no embedded toolchain in
+      # this project ships.
+      - name: clang-tidy
+        run: |
+          clang-tidy main/script/script_pack.c main/script/script_lua.c \
+            -- -I main/lua -I main/script -std=c11
+
+  target-compile:
+    name: compile for esp32s3
+    runs-on: ubuntu-latest
+    container: espressif/idf:v5.5.4
+    steps:
+      - uses: actions/checkout@v4
+      # Compile only, not a link: this proves the vendored Lua builds for
+      # Xtensa with the patched luaconf.h, which is the part most likely to
+      # break on a toolchain bump. Measured 90,638 B of flash when this was
+      # written, against 86,974 B for the LispBM core it replaces.
+      - name: Compile vendored Lua
+        shell: bash
+        run: |
+          . $IDF_PATH/export.sh
+          mkdir -p /tmp/luaobj
+          cd main/lua
+          for f in *.c; do
+            xtensa-esp32s3-elf-gcc -c -Os -I. -ffunction-sections -fdata-sections \
+              -Werror -o /tmp/luaobj/${f%.c}.o $f
+          done
+          xtensa-esp32s3-elf-size -A /tmp/luaobj/*.o | \
+            awk '/^\.text/{t+=$2} /^\.rodata/{r+=$2} END{printf "flash total: %d B\n", t+r}'

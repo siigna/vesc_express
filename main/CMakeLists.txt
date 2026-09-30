@@ -107,6 +107,79 @@ set(COMPONENT_SRCS
 "lowzip/lowzip.c"
 )
 
+# --------------------------------------------------------------------------
+# Script engine selection.
+#
+#   idf.py -DSCRIPT_ENGINE=lua -DHW_NAME="S3 N16R8" build
+#
+# Default is lisp, which is the configuration everything else in this tree
+# expects, and selecting it changes nothing. Choosing lua swaps the whole
+# scripting subsystem: LispBM, its VESC extension bindings and the adapter in
+# lispif.c come out; Lua, the shared container parser and the adapter in
+# main/script/luaif.c go in.
+#
+# The two adapters implement the same eight entry points, so commands.c,
+# comm_can.c and main.c are untouched either way and do not know which
+# language the board runs.
+#
+# A lua build also drops the display, touch, BLE, wifi and rgbled extension
+# modules, and the board files that register their own lisp extensions. Those
+# are written against the LispBM value ABI, which is the real work in porting
+# them -- see tools/script_ext_coverage.py for what is bound so far. Boards
+# with no lisp glue of their own build as they are.
+set(SCRIPT_ENGINE "lisp" CACHE STRING "Script engine: lisp or lua")
+set_property(CACHE SCRIPT_ENGINE PROPERTY STRINGS lisp lua)
+
+if(SCRIPT_ENGINE STREQUAL "lua")
+    # Announced only in the real configure pass. IDF also runs this file in
+    # cmake script mode to scan requirements, where the -D is not passed, so
+    # printing unconditionally reports the wrong engine once per build.
+    if(NOT CMAKE_SCRIPT_MODE_FILE)
+        message(STATUS "Script engine: Lua (LispBM excluded)")
+    endif()
+
+    # Everything written against the LispBM ABI.
+    set(LBM_DEPENDENT
+        "lispif.c"
+        "lispif_c_lib.c"
+        "lispif_events.c"
+        "lbm_vesc_utils.c"
+        "lispif_vesc_extensions.c"
+        "lbm_color_extensions.c"
+        "wifi/lispif_wifi_extensions.c"
+        "rgbled/lispif_rgbled_extensions.c"
+        "touch/lispif_touch_extensions.c"
+        "touch/touch_cst836u.c"
+        "display/lispif_disp_extensions.c"
+        "display/clay_layout.c"
+    )
+    foreach(src ${COMPONENT_SRCS})
+        # The lispBM tree itself, and the display drivers, which register
+        # their own extensions alongside the driver code.
+        if(src MATCHES "^lispBM/" OR src MATCHES "^display/disp_")
+            list(APPEND LBM_DEPENDENT ${src})
+        endif()
+    endforeach()
+
+    foreach(src ${LBM_DEPENDENT})
+        list(REMOVE_ITEM COMPONENT_SRCS ${src})
+    endforeach()
+
+    file(GLOB LUA_CORE_SRCS RELATIVE ${CMAKE_CURRENT_SOURCE_DIR} "lua/*.c")
+    list(APPEND COMPONENT_SRCS
+        ${LUA_CORE_SRCS}
+        "script/script_pack.c"
+        "script/script_lua.c"
+        "script/lua_vesc_ext.c"
+        "script/luaif.c"
+    )
+
+else()
+    if(NOT CMAKE_SCRIPT_MODE_FILE)
+        message(STATUS "Script engine: LispBM")
+    endif()
+endif()
+
 if(CONFIG_BT_BLUEDROID_ENABLED)
     list(APPEND COMPONENT_SRCS
         "ble/lispif_ble_extensions.c"
@@ -116,6 +189,8 @@ endif()
 set(COMPONENT_ADD_INCLUDEDIRS
 "."
 "config"
+"lua"
+"script"
 "hwconf"
 "hwconf/trampa"
 "hwconf/trampa/bms_rb"
@@ -155,6 +230,16 @@ set(COMPONENT_ADD_INCLUDEDIRS
 )
 
 register_component()
+
+# After registration: during IDF's requirements scan this file is run in cmake
+# script mode, where add_compile_definitions does not exist, and the scan stops
+# at register_component(). Anything using it therefore has to sit below here --
+# which is why the LBM_USE_* block further down works.
+if(SCRIPT_ENGINE STREQUAL "lua")
+    add_compile_definitions(SCRIPT_ENGINE_LUA=1)
+else()
+    add_compile_definitions(SCRIPT_ENGINE_LISP=1)
+endif()
 
 # Clay is ~80 kB of flash and is only usable on a board with a display, so it
 # is enabled for the targets with room rather than for everything. The C3 in

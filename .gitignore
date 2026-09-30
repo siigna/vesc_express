@@ -27,3 +27,5 @@ main/script/test/.luaobj/
 main/script/test/crash-*
 main/script/test/timeout-*
 main/script/test/leak-*
+build_lua/
+build_lisp/

@@ -20,7 +20,7 @@
 
 #include <stdint.h>
 #include <stdbool.h>
-#include "lispif_disp_extensions.h"
+#include "tinygfx.h"
 
 #if CONFIG_IDF_TARGET_ESP32P4
 

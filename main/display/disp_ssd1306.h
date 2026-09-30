@@ -24,7 +24,7 @@
 
 #include <stdint.h>
 #include <stdbool.h>
-#include "lispif_disp_extensions.h"
+#include "tinygfx.h"
 
 void disp_ssd1306_init(int pin_sda, int pin_scl, uint32_t clk_speed);
 bool disp_ssd1306_render_image(image_buffer_t *img, uint16_t x, uint16_t y, color_t *colors);

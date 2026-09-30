@@ -21,7 +21,7 @@
 #include <stdint.h>
 #include <stdbool.h>
 #include "soc/soc_caps.h"
-#include "lispif_disp_extensions.h"
+#include "tinygfx.h"
 
 #if SOC_MIPI_DSI_SUPPORTED
 

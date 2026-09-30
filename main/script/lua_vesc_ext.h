@@ -9,8 +9,13 @@ void lua_vesc_ext_register(script_lua_t *s);
 // UART and I2C, in lua_vesc_io.c.
 void lua_vesc_io_register(script_lua_t *s);
 
-// Image buffers and drawing, in lua_vesc_disp.c.
+// Image buffers and drawing, in lua_vesc_disp.c. Host-testable: no driver
+// dependencies.
 void lua_vesc_disp_register(script_lua_t *s);
+
+// Panel loaders, in lua_vesc_disp_load.c. Target only -- it names real
+// drivers, which build against ESP-IDF.
+void lua_vesc_disp_load_register(script_lua_t *s);
 
 /*
  * The bound names, for the `script_ext` terminal command and for

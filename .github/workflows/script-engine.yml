@@ -98,8 +98,9 @@ jobs:
             --error-exitcode=1 --inline-suppr --quiet \
             --suppress=missingIncludeSystem \
             -I main/lua -I main/script \
+            -I main/lispBM/utils -I main/display \
             main/script/script_pack.c main/script/script_lua.c \
-            main/display/disp_backend.c
+            main/script/lua_vesc_disp.c main/display/disp_backend.c
       # Configuration lives in main/script/.clang-tidy so that running this
       # locally and running it here cannot disagree. The Annex K checker is
       # disabled there: it asks for memset_s, which no embedded toolchain in
@@ -151,6 +152,23 @@ jobs:
           nm build_lisp/vesc_express.elf | grep -q ' T lbm_add_extension'
           if nm build_lisp/vesc_express.elf | grep -q ' T lua_newstate'; then
             echo "Lua symbols found in the lisp build"; exit 1
+          fi
+      # The panel drivers are shared between engines, with their LispBM
+      # extension wrappers behind #if SCRIPT_ENGINE_LISP. Getting that guard
+      # wrong compiles cleanly either way -- too wide and the lisp build
+      # silently loses disp-cmd, too narrow and the lua build fails to
+      # link -- so check the registered name is present in one binary and
+      # absent from the other.
+      - name: Confirm the driver guards are correct in both directions
+        shell: bash
+        run: |
+          set -e
+          present() { tr -c '[:print:]' '\n' < "$1" | grep -qx 'ext-disp-cmd'; }
+          if ! present build_lisp/vesc_express.bin; then
+            echo "lisp build lost ext-disp-cmd: the guard is too wide"; exit 1
+          fi
+          if present build_lua/vesc_express.bin; then
+            echo "lua build contains ext-disp-cmd: the guard is too narrow"; exit 1
           fi
 
   target-compile:

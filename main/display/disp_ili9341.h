@@ -23,7 +23,7 @@
 
 #include <stdint.h>
 #include <stdbool.h>
-#include "lispif_disp_extensions.h"
+#include "tinygfx.h"
 
 void disp_ili9341_init(int pin_sd0, int pin_clk, int pin_cs, int pin_reset, int pin_dc, int clock_mhz);
 void disp_ili9341_command(uint8_t command, const uint8_t *args, int argn);

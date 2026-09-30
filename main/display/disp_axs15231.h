@@ -20,7 +20,7 @@
 
 #include <stdint.h>
 #include <stdbool.h>
-#include "lispif_disp_extensions.h"
+#include "tinygfx.h"
 
 void disp_axs15231_init(int pin_sd0, int pin_sd1, int pin_sd2, int pin_sd3, int pin_clk, int pin_cs, int pin_reset, int clock_mhz);
 void disp_axs15231_command(uint8_t command, const uint8_t *args, int argn);

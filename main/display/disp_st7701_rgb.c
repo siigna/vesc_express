@@ -42,7 +42,9 @@
 #include "esp_log.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
+#if defined(SCRIPT_ENGINE_LISP)
 #include "lispif.h"
+#endif /* SCRIPT_ENGINE_LISP */
 #include "lispbm.h"
 #include <string.h>
 
@@ -349,11 +351,20 @@ void disp_st7701_rgb_set_rotation(int rotation) {
 
 // The panel is square, so a rotation never changes the usable width or
 // height. Only the blit path has to care.
+/*
+ * The LispBM-specific parts of this driver are guarded so the driver itself
+ * can be built for either script engine. Only these extension wrappers ever
+ * needed the interpreter: the panel code below, and the render/clear/reset
+ * callbacks, use image_buffer_t and color_t from tinygfx and know nothing
+ * about a script engine.
+ */
+#if defined(SCRIPT_ENGINE_LISP)
 static lbm_value ext_disp_orientation(lbm_value *args, lbm_uint argn) {
 	LBM_CHECK_ARGN_NUMBER(1);
 	m_rotation = (int)(lbm_dec_as_u32(args[0]) & 3U);
 	return ENC_SYM_TRUE;
 }
+#endif /* SCRIPT_ENGINE_LISP */
 
 bool disp_st7701_rgb_init(const disp_st7701_rgb_cfg_t *cfg) {
 	if (!cfg) {
@@ -506,7 +517,9 @@ bool disp_st7701_rgb_init(const disp_st7701_rgb_cfg_t *cfg) {
 		return false;
 	}
 
+#if defined(SCRIPT_ENGINE_LISP)
 	lbm_add_extension("ext-disp-orientation", ext_disp_orientation);
+#endif /* SCRIPT_ENGINE_LISP */
 
 	return true;
 }

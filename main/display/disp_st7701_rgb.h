@@ -22,7 +22,7 @@
 #include <stdbool.h>
 #include <stddef.h>
 #include "soc/soc_caps.h"
-#include "lispif_disp_extensions.h"
+#include "tinygfx.h"
 #include "esp_lcd_st7701.h"
 
 #if SOC_LCD_RGB_SUPPORTED

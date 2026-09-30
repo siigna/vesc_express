@@ -163,14 +163,12 @@ if(SCRIPT_ENGINE STREQUAL "lua")
         if(src MATCHES "^lispBM/utils/")
             continue()
         endif()
-        if(src MATCHES "^lispBM/" OR src MATCHES "^display/disp_")
+        # The panel drivers are engine-neutral now: their LispBM extension
+        # wrappers are guarded, and their callbacks use tinygfx types only.
+        if(src MATCHES "^lispBM/")
             list(APPEND LBM_DEPENDENT ${src})
         endif()
     endforeach()
-
-    # The neutral registry matches the display/disp_ pattern above but is
-    # wanted in both builds.
-    list(REMOVE_ITEM LBM_DEPENDENT "display/disp_backend.c")
 
     foreach(src ${LBM_DEPENDENT})
         list(REMOVE_ITEM COMPONENT_SRCS ${src})
@@ -184,6 +182,7 @@ if(SCRIPT_ENGINE STREQUAL "lua")
         "script/lua_vesc_ext.c"
         "script/lua_vesc_io.c"
         "script/lua_vesc_disp.c"
+        "script/lua_vesc_disp_load.c"
         "script/luaif.c"
     )
 

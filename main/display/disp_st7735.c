@@ -26,7 +26,9 @@
 
 #include "disp_st7735.h"
 #include "hwspi.h"
+#if defined(SCRIPT_ENGINE_LISP)
 #include "lispif.h"
+#endif /* SCRIPT_ENGINE_LISP */
 #include "lispbm.h"
 
 static int display_width = 0;
@@ -275,6 +277,14 @@ void disp_st7735_clear(uint32_t color) {
 	hwspi_end();
 }
 
+/*
+ * The LispBM-specific parts of this driver are guarded so the driver itself
+ * can be built for either script engine. Only these extension wrappers ever
+ * needed the interpreter: the panel code below, and the render/clear/reset
+ * callbacks, use image_buffer_t and color_t from tinygfx and know nothing
+ * about a script engine.
+ */
+#if defined(SCRIPT_ENGINE_LISP)
 static lbm_value ext_disp_cmd(lbm_value *args, lbm_uint argn) {
 	LBM_CHECK_NUMBER_ALL();
 
@@ -298,7 +308,9 @@ static lbm_value ext_disp_cmd(lbm_value *args, lbm_uint argn) {
 
 	return res;
 }
+#endif /* SCRIPT_ENGINE_LISP */
 
+#if defined(SCRIPT_ENGINE_LISP)
 static lbm_value ext_disp_orientation(lbm_value *args, lbm_uint argn) {
 	LBM_CHECK_ARGN_NUMBER(1);
 
@@ -336,6 +348,7 @@ static lbm_value ext_disp_orientation(lbm_value *args, lbm_uint argn) {
 	}
 	return res;
 }
+#endif /* SCRIPT_ENGINE_LISP */
 
 void disp_st7735_init(int pin_sd0, int pin_clk, int pin_cs, int pin_reset, int pin_dc, int clock_mhz) {
 	hwspi_init(clock_mhz, 0, -1, pin_sd0, pin_clk, pin_cs);
@@ -354,8 +367,10 @@ void disp_st7735_init(int pin_sd0, int pin_clk, int pin_cs, int pin_reset, int p
 	gpio_set_level(m_pin_reset, 1);
 	gpio_set_level(m_pin_dc, 0);
 
+#if defined(SCRIPT_ENGINE_LISP)
 	lbm_add_extension("ext-disp-cmd", ext_disp_cmd);
 	lbm_add_extension("ext-disp-orientation", ext_disp_orientation);
+#endif /* SCRIPT_ENGINE_LISP */
 }
 
 

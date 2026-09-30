@@ -136,6 +136,14 @@ static inline uint32_t pixel_to_rgb888(image_buffer_t *img, int x, int y, color_
 static void disp_jd9165_deinit(void);
 static void disp_jd9165_init_internal(void);
 
+/*
+ * The LispBM-specific parts of this driver are guarded so the driver itself
+ * can be built for either script engine. Only these extension wrappers ever
+ * needed the interpreter: the panel code below, and the render/clear/reset
+ * callbacks, use image_buffer_t and color_t from tinygfx and know nothing
+ * about a script engine.
+ */
+#if defined(SCRIPT_ENGINE_LISP)
 static lbm_value ext_disp_cmd(lbm_value *args, lbm_uint argn) {
     LBM_CHECK_NUMBER_ALL();
 
@@ -165,7 +173,9 @@ static lbm_value ext_disp_cmd(lbm_value *args, lbm_uint argn) {
     esp_err_t err = esp_lcd_panel_io_tx_param(m_ctx.io, cmd, n > 0 ? paras : NULL, n);
     return (err == ESP_OK) ? ENC_SYM_TRUE : ENC_SYM_EERROR;
 }
+#endif /* SCRIPT_ENGINE_LISP */
 
+#if defined(SCRIPT_ENGINE_LISP)
 static lbm_value ext_disp_orientation(lbm_value *args, lbm_uint argn) {
     LBM_CHECK_ARGN_NUMBER(1);
 
@@ -200,6 +210,7 @@ static lbm_value ext_disp_orientation(lbm_value *args, lbm_uint argn) {
 
     return ENC_SYM_TRUE;
 }
+#endif /* SCRIPT_ENGINE_LISP */
 
 bool disp_jd9165_render_image(image_buffer_t *img, uint16_t x, uint16_t y, color_t *colors) {
     if (!m_ctx.panel || !m_ctx.front) {
@@ -359,8 +370,10 @@ void disp_jd9165_init(int pin_rst, int lane_mbps) {
 
     disp_jd9165_init_internal();
 
+#if defined(SCRIPT_ENGINE_LISP)
     lbm_add_extension("ext-disp-cmd", ext_disp_cmd);
     lbm_add_extension("ext-disp-orientation", ext_disp_orientation);
+#endif /* SCRIPT_ENGINE_LISP */
 }
 
 #endif

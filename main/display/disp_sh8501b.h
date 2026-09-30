@@ -23,7 +23,7 @@
 
 #include <stdint.h>
 #include <stdbool.h>
-#include "lispif_disp_extensions.h"
+#include "tinygfx.h"
 
 void disp_sh8501b_init(int pin_sd0, int pin_clk, int pin_cs, int pin_reset, int clock_mhz);
 void disp_sh8501b_command(uint8_t command, uint8_t *args, int argn);

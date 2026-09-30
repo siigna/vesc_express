@@ -412,7 +412,9 @@ bool disp_st7701_init(int pin_rst, int lane_mbps) {
         return false;
     }
 
+#if defined(SCRIPT_ENGINE_LISP)
     lbm_add_extension("ext-disp-orientation", disp_st7701_ext_orientation);
+#endif /* SCRIPT_ENGINE_LISP */
     return true;
 }
 

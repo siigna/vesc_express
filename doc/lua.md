@@ -175,6 +175,31 @@ It returns the bytes read, or `true` for a write with no read, or `nil` plus
 an error string on a bus error — so a missing device is distinguishable from
 one that answered with zeros.
 
+### Bringing a panel up
+
+```lua
+vesc.disp_load("st7789", 6, 5, 7, 8, 4, 40)   -- sd0, clk, cs, reset, dc, mhz
+vesc.disp_load("ssd1306", 7, 6, 700000)       -- sda, scl, hz
+```
+
+`vesc.disp_panels()` returns what this build can load. One binding rather than
+one per panel, because almost every SPI panel in the tree takes the same six
+arguments:
+
+| panels | arguments |
+|---|---|
+| `st7789`, `st7789a`, `ili9341`, `ili9488`, `gc9a01`, `jd9853`, `sh8601`, `ssd1351`, `st7735` | `sd0, clk, cs, reset, dc, [mhz]` |
+| `sh8501b`, `icna3306` | `sd0, clk, cs, reset, [mhz]` |
+| `ssd1306` | `sda, scl, [hz]` |
+
+Loading registers the driver with the display backend, which is what makes the
+drawing functions start reaching the glass. An unknown panel name lists the
+available ones in the error rather than leaving you to guess at spellings.
+
+Not loadable this way yet: `st7701` and `st7701_rgb`, whose configuration is a
+struct rather than a pin list, and any board whose own `hw_*.c` provides a
+`disp-init`. Those boards are also not buildable with Lua yet.
+
 ### Drawing
 
 Buffers are Lua objects with methods, and the drawing is tinygfx — the same
@@ -268,13 +293,7 @@ will not silently unsubscribe you from the bus.
 
 ## What is not bound yet
 
-Panel *loaders*, touch, BLE, wifi, rgbled, BMS and IMU. Drawing works and is
-tested, but a Lua build has no way to bring a panel up yet: the loaders
-(`disp-load-st7789` and friends) live in the lisp extension file. A board that
-provides its own `disp-init` is the near-term route, and the driver callbacks
-themselves already register through the engine-neutral `disp_backend`.
-
-Also not bound: Those lisp extensions are
+Touch, BLE, wifi, rgbled, BMS and IMU., BLE, wifi, rgbled, BMS and IMU. Those lisp extensions are
 written against the LispBM value ABI, and porting them is the bulk of the
 remaining work; the drivers underneath are engine-neutral. Boards whose own
 `hw_*.c` registers script extensions cannot be built with Lua yet for the

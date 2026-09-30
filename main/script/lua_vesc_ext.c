@@ -242,6 +242,23 @@ static int l_get_adc(lua_State *L) {
 	return 1;
 }
 
+// ---------------------------------------------------------------- events ---
+
+/*
+ * Events the queue had to drop because the script could not keep up.
+ *
+ * Exposed rather than merely logged because a handler is the only thing that
+ * knows whether missing frames matter. A script sampling a sensor can ignore
+ * a gap; one counting wheel pulses cannot, and should be able to notice and
+ * say so.
+ */
+uint32_t luaif_events_dropped(void);
+
+static int l_events_dropped(lua_State *L) {
+	lua_pushinteger(L, (lua_Integer)luaif_events_dropped());
+	return 1;
+}
+
 // ------------------------------------------------------------ registration --
 
 static const luaL_Reg vesc_fns[] = {
@@ -264,6 +281,8 @@ static const luaL_Reg vesc_fns[] = {
 	{"eeprom_erase", l_eeprom_erase},
 
 	{"get_adc", l_get_adc},
+
+	{"events_dropped", l_events_dropped},
 
 	{NULL, NULL},
 };

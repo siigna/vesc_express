@@ -23,6 +23,7 @@
 #include <stddef.h>
 
 #include "script_pack.h"
+#include "script_event.h"
 #include "lua.h"
 #include "lauxlib.h"
 
@@ -106,6 +107,35 @@ size_t script_lua_mem_peak(const script_lua_t *s);
  * engine so callers can chain without checking twice.
  */
 lua_State *script_lua_state(script_lua_t *s);
+
+/*
+ * Install vesc.on_can, vesc.on_app_data and vesc.on_timer, which a script
+ * uses to register handlers. The handlers are kept in the registry, out of
+ * reach of the script itself.
+ */
+void script_lua_install_events(script_lua_t *s);
+
+/*
+ * Deliver one event to the script's handler for it.
+ *
+ * Returns false if the handler raised, with the message in err. A handler
+ * that fails is reported and kept: one bad frame should not silently
+ * unsubscribe a vehicle from its own CAN traffic. Returns true with no
+ * handler registered, which is not an error -- most scripts want only some
+ * of these.
+ */
+bool script_lua_dispatch(script_lua_t *s, const script_event_t *ev,
+		char *err, size_t err_len);
+
+// True if the script registered a handler for this event type. Lets the
+// producer side skip queueing work nothing will consume.
+bool script_lua_wants(const script_lua_t *s, int type);
+
+/*
+ * Timer period the script asked for via vesc.on_timer, in milliseconds, or 0
+ * if it did not ask for one.
+ */
+uint32_t script_lua_timer_period(const script_lua_t *s);
 
 /*
  * Register a table of C functions as fields of the global `vesc` table.

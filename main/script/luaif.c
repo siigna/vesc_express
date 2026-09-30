@@ -40,6 +40,7 @@
 
 #include "script_lua.h"
 #include "script_pack.h"
+#include "script_event.h"
 #include "lua_vesc_ext.h"
 
 #include "lispif.h"
@@ -52,6 +53,7 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "freertos/semphr.h"
+#include "freertos/queue.h"
 
 #include "esp_log.h"
 
@@ -98,6 +100,63 @@ static bool m_blob_valid = false;
 
 static char print_prefix[32] = "lua";
 static char fw_name[32] = {0};
+
+/*
+ * Event queue, from the firmware's tasks to the engine task.
+ *
+ * Depth 32, one allocation at start up. A producer that fills this queue
+ * drops the event and increments a counter rather than blocking: the
+ * producers are the CAN and comms tasks, and stalling those because a script
+ * is slow would turn a script problem into a comms problem. Dropping is
+ * visible through vesc.events_dropped(), so a script that cannot keep up can
+ * say so instead of quietly missing frames.
+ */
+#define LUA_EVENT_QUEUE_LEN	32
+
+static QueueHandle_t m_events = NULL;
+static volatile uint32_t m_dropped = 0;
+
+/*
+ * Post from a producer task. Never blocks, never touches the interpreter.
+ *
+ * The check against script_lua_wants means traffic nothing has subscribed to
+ * costs a queue-depth test rather than a copy and a wakeup. On a busy CAN bus
+ * that is the difference between a script costing nothing and a script
+ * costing every frame.
+ */
+static void event_post(script_event_type_t type, uint32_t id,
+		const uint8_t *data, int len) {
+	if (!m_events || !m_engine) {
+		return;
+	}
+	if (!script_lua_wants(m_engine, (int)type)) {
+		return;
+	}
+
+	script_event_t ev = {0};
+	ev.type = (uint8_t)type;
+	ev.id = id;
+
+	if (len < 0) {
+		len = 0;
+	}
+	if (len > SCRIPT_EVENT_PAYLOAD) {
+		ev.truncated = 1;
+		len = SCRIPT_EVENT_PAYLOAD;
+	}
+	ev.len = (uint16_t)len;
+	if (data && len > 0) {
+		memcpy(ev.data, data, (size_t)len);
+	}
+
+	if (xQueueSend(m_events, &ev, 0) != pdTRUE) {
+		m_dropped++;
+	}
+}
+
+uint32_t luaif_events_dropped(void) {
+	return m_dropped;
+}
 
 // -------------------------------------------------------------- callbacks ---
 
@@ -160,6 +219,7 @@ static bool engine_open(void) {
 	}
 
 	lua_vesc_ext_register(m_engine);
+	script_lua_install_events(m_engine);
 	return true;
 }
 
@@ -217,6 +277,67 @@ static void run_loaded(void) {
 	}
 }
 
+/*
+ * Drain the queue and run the timer, then sleep.
+ *
+ * The wait on the queue is what idles this task: with no events and no timer
+ * it blocks for 100 ms at a time rather than spinning. With a timer it waits
+ * at most until the timer is next due, so a 20 ms timer is served to within a
+ * tick without polling at 20 ms when nothing is registered.
+ */
+static void drain_events(void) {
+	uint32_t period = m_engine ? script_lua_timer_period(m_engine) : 0;
+
+	TickType_t wait = pdMS_TO_TICKS(100);
+	if (period > 0) {
+		TickType_t p = pdMS_TO_TICKS(period);
+		if (p < wait) {
+			wait = p;
+		}
+	}
+	if (wait < 1) {
+		wait = 1;
+	}
+
+	script_event_t ev;
+	if (m_events && xQueueReceive(m_events, &ev, wait) == pdTRUE) {
+		char err[256];
+		lock();
+		if (m_engine) {
+			m_running = true;
+			bool ok = script_lua_dispatch(m_engine, &ev, err, sizeof(err));
+			m_running = false;
+			if (!ok) {
+				commands_printf_lisp("Lua handler error: %s", err);
+			}
+		}
+		unlock();
+	}
+
+	// Timer, checked against the tick count rather than counted in sleeps, so
+	// a slow handler does not make the period drift.
+	if (period > 0) {
+		static TickType_t next = 0;
+		TickType_t now = xTaskGetTickCount();
+		if (next == 0 || (int32_t)(now - next) >= 0) {
+			next = now + pdMS_TO_TICKS(period);
+
+			script_event_t t = {.type = SCRIPT_EV_TIMER};
+			char err[256];
+			lock();
+			if (m_engine) {
+				m_running = true;
+				bool ok = script_lua_dispatch(m_engine, &t, err, sizeof(err));
+				m_running = false;
+				if (!ok) {
+					commands_printf_lisp("Lua timer error: %s", err);
+				}
+			}
+			unlock();
+		}
+	}
+}
+
 static void lua_task(void *arg) {
 	(void)arg;
 
@@ -242,7 +363,7 @@ static void lua_task(void *arg) {
 			m_stop_req = false;
 		}
 
-		vTaskDelay(pdMS_TO_TICKS(10));
+		drain_events();
 	}
 }
 
@@ -254,6 +375,7 @@ void lispif_init(void) {
 	}
 
 	m_mutex = xSemaphoreCreateMutex();
+	m_events = xQueueCreate(LUA_EVENT_QUEUE_LEN, sizeof(script_event_t));
 
 	// The engine task exists for the life of the firmware; starting and
 	// stopping a script means opening and closing an interpreter inside it,
@@ -305,25 +427,21 @@ char *lispif_fw_name(void) {
 }
 
 /*
- * Frame and app-data hooks, deliberately empty.
- *
- * These run on the CAN and comms tasks. Calling into the interpreter from
- * them would be a data race: a lua_State is not reentrant, and there is no
- * safe way to enter one while the engine task may be inside it. Doing this
- * properly means a queue drained by the engine task, which is the next piece
- * of work rather than something to approximate here -- a race that usually
- * works is worse than a gap that is written down.
+ * Frame and app-data hooks. These run on the CAN and comms tasks, so they
+ * copy into the queue and return -- a lua_State is not reentrant and the
+ * engine task may be inside it. The interpreter is entered only from
+ * drain_events, on the engine task.
  */
 void lispif_process_can(uint32_t can_id, uint8_t *data8, int len, bool is_ext) {
-	(void)can_id; (void)data8; (void)len; (void)is_ext;
+	event_post(is_ext ? SCRIPT_EV_CAN_EID : SCRIPT_EV_CAN_SID, can_id, data8, len);
 }
 
 void lispif_process_can2(uint32_t can_id, uint8_t *data8, int len, bool is_ext) {
-	(void)can_id; (void)data8; (void)len; (void)is_ext;
+	event_post(is_ext ? SCRIPT_EV_CAN2_EID : SCRIPT_EV_CAN2_SID, can_id, data8, len);
 }
 
 void lispif_process_custom_app_data(unsigned char *data, unsigned int len) {
-	(void)data; (void)len;
+	event_post(SCRIPT_EV_APP_DATA, 0, data, (int)len);
 }
 
 void lispif_process_rmsg(int slot, unsigned char *data, unsigned int len) {

@@ -23,12 +23,33 @@
 #include <string.h>
 #include <stdlib.h>
 #include <stdio.h>
+#include <stddef.h>
 
 struct script_lua {
 	lua_State *L;
 	script_lua_cfg_t cfg;
 	size_t mem_used;
 	size_t mem_peak;
+	uint32_t timer_period_ms;
+
+	/*
+	 * Plain flags mirroring which handlers are registered.
+	 *
+	 * script_lua_wants is called from the CAN and comms tasks to decide
+	 * whether an event is worth queueing, and it must not touch the
+	 * interpreter to answer: lua_getfield manipulates the Lua stack, and
+	 * doing that from another task while the engine task is inside a pcall
+	 * corrupts it. These are written only from the engine task, while it is
+	 * inside the registering call, and read from anywhere.
+	 *
+	 * volatile, not atomic, and that is sufficient here: each is a single
+	 * byte written with a constant and read independently, so a reader sees
+	 * either the old or the new value and both are safe -- a stale false
+	 * drops one event, a stale true queues one nobody reads.
+	 */
+	volatile uint8_t have_can;
+	volatile uint8_t have_app_data;
+	volatile uint8_t have_timer;
 };
 
 /*
@@ -345,6 +366,204 @@ bool script_lua_run(script_lua_t *s, const char *src, int32_t len,
 			snprintf(err, err_len, "%s", msg);
 		}
 		lua_pop(s->L, 1);
+		return false;
+	}
+
+	return true;
+}
+
+// ---------------------------------------------------------------- events ---
+
+/*
+ * Handlers live in the registry under fixed keys rather than in a Lua table
+ * the script can see. A script that could reach the handler table could
+ * replace another module's handler, and more practically it would show up in
+ * the globals listing that GET_STATS walks.
+ */
+static const char *const EV_KEYS[] = {
+	[SCRIPT_EV_NONE] = NULL,
+	[SCRIPT_EV_CAN_SID] = "_ev_can",
+	[SCRIPT_EV_CAN_EID] = "_ev_can",
+	[SCRIPT_EV_CAN2_SID] = "_ev_can",
+	[SCRIPT_EV_CAN2_EID] = "_ev_can",
+	[SCRIPT_EV_APP_DATA] = "_ev_app_data",
+	[SCRIPT_EV_TIMER] = "_ev_timer",
+};
+
+static const char *ev_key(int type) {
+	if (type <= SCRIPT_EV_NONE || type > SCRIPT_EV_TIMER) {
+		return NULL;
+	}
+	return EV_KEYS[type];
+}
+
+static int set_handler(lua_State *L, const char *key, size_t flag_offset) {
+	if (!lua_isnil(L, 1)) {
+		luaL_checktype(L, 1, LUA_TFUNCTION);
+	}
+	bool present = !lua_isnil(L, 1);
+
+	lua_settop(L, 1);
+	lua_setfield(L, LUA_REGISTRYINDEX, key);
+
+	script_lua_t *s = NULL;
+	lua_getallocf(L, (void **)&s);
+	if (s) {
+		*((volatile uint8_t *)((char *)s + flag_offset)) = present ? 1 : 0;
+	}
+	return 0;
+}
+
+// vesc.on_can(function(id, data, is_ext, bus) end) -- nil to unregister.
+static int l_on_can(lua_State *L) {
+	return set_handler(L, "_ev_can", offsetof(struct script_lua, have_can));
+}
+
+// vesc.on_app_data(function(data) end)
+static int l_on_app_data(lua_State *L) {
+	return set_handler(L, "_ev_app_data",
+			offsetof(struct script_lua, have_app_data));
+}
+
+/*
+ * vesc.on_timer(period_ms, function() end)
+ *
+ * One timer, not many: a script wanting several periods can divide down from
+ * one, and a single timer keeps the engine task's scheduling obvious. The
+ * period is clamped rather than rejected, because a script asking for 0 means
+ * "as fast as possible" and spinning the engine task at that rate would
+ * starve everything else on the core.
+ */
+static int l_on_timer(lua_State *L) {
+	lua_Integer period = luaL_checkinteger(L, 1);
+	if (period < 1) {
+		period = 1;
+	}
+
+	script_lua_t *s = NULL;
+	lua_getallocf(L, (void **)&s);
+	if (s) {
+		s->timer_period_ms = (uint32_t)period;
+	}
+
+	lua_settop(L, 2);
+	if (!lua_isnil(L, 2)) {
+		luaL_checktype(L, 2, LUA_TFUNCTION);
+	}
+	bool present = !lua_isnil(L, 2);
+	lua_setfield(L, LUA_REGISTRYINDEX, "_ev_timer");
+	if (s) {
+		s->have_timer = present ? 1 : 0;
+	}
+	return 0;
+}
+
+void script_lua_install_events(script_lua_t *s) {
+	if (!s || !s->L) {
+		return;
+	}
+
+	static const luaL_Reg ev_fns[] = {
+		{"on_can", l_on_can},
+		{"on_app_data", l_on_app_data},
+		{"on_timer", l_on_timer},
+		{NULL, NULL},
+	};
+	script_lua_register(s, ev_fns);
+}
+
+/*
+ * Answered from the mirrored flags, never by asking Lua.
+ *
+ * This is called from producer tasks, so it cannot use the Lua API at all --
+ * an earlier version of this function did a lua_getfield here, which races
+ * with the engine task being inside a pcall and would corrupt the Lua stack
+ * rather than fail visibly.
+ */
+bool script_lua_wants(const script_lua_t *s, int type) {
+	if (!s) {
+		return false;
+	}
+
+	switch (type) {
+	case SCRIPT_EV_CAN_SID:
+	case SCRIPT_EV_CAN_EID:
+	case SCRIPT_EV_CAN2_SID:
+	case SCRIPT_EV_CAN2_EID:
+		return s->have_can != 0;
+	case SCRIPT_EV_APP_DATA:
+		return s->have_app_data != 0;
+	case SCRIPT_EV_TIMER:
+		return s->have_timer != 0;
+	default:
+		return false;
+	}
+}
+
+uint32_t script_lua_timer_period(const script_lua_t *s) {
+	return s ? s->timer_period_ms : 0;
+}
+
+bool script_lua_dispatch(script_lua_t *s, const script_event_t *ev,
+		char *err, size_t err_len) {
+	if (err && err_len > 0) {
+		err[0] = '\0';
+	}
+	if (!s || !s->L || !ev) {
+		return true;
+	}
+
+	const char *key = ev_key(ev->type);
+	if (!key) {
+		return true;
+	}
+
+	lua_State *L = s->L;
+	lua_getfield(L, LUA_REGISTRYINDEX, key);
+	if (!lua_isfunction(L, -1)) {
+		lua_pop(L, 1);
+		return true;	// Nothing registered is not a failure.
+	}
+
+	int nargs = 0;
+	switch (ev->type) {
+	case SCRIPT_EV_CAN_SID:
+	case SCRIPT_EV_CAN_EID:
+	case SCRIPT_EV_CAN2_SID:
+	case SCRIPT_EV_CAN2_EID:
+		lua_pushinteger(L, (lua_Integer)ev->id);
+		// The payload is a string, not a table: it is already a counted byte
+		// buffer, string.unpack reads it in whatever layout the sender used,
+		// and it allocates nothing per byte in a handler that may run at a
+		// few hundred hertz.
+		lua_pushlstring(L, (const char *)ev->data, ev->len);
+		lua_pushboolean(L, ev->type == SCRIPT_EV_CAN_EID ||
+				ev->type == SCRIPT_EV_CAN2_EID);
+		lua_pushinteger(L, (ev->type == SCRIPT_EV_CAN2_SID ||
+				ev->type == SCRIPT_EV_CAN2_EID) ? 2 : 1);
+		nargs = 4;
+		break;
+
+	case SCRIPT_EV_APP_DATA:
+		lua_pushlstring(L, (const char *)ev->data, ev->len);
+		nargs = 1;
+		break;
+
+	case SCRIPT_EV_TIMER:
+		nargs = 0;
+		break;
+
+	default:
+		lua_pop(L, 1);
+		return true;
+	}
+
+	if (lua_pcall(L, nargs, 0, 0) != LUA_OK) {
+		const char *msg = lua_tostring(L, -1);
+		if (err && err_len > 0 && msg) {
+			snprintf(err, err_len, "%s", msg);
+		}
+		lua_pop(L, 1);
 		return false;
 	}
 

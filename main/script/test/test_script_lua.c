@@ -305,6 +305,118 @@ int main(int argc, char **argv) {
 		script_lua_close(s);
 	}
 
+	// Event dispatch. These are the paths a CAN frame takes to a handler, and
+	// the point of testing them here is that the alternative is testing them
+	// on a moving vehicle.
+	{
+		script_lua_t *s = open_engine(0, NULL);
+		script_lua_install_events(s);
+
+		script_event_t none = {.type = SCRIPT_EV_CAN_SID, .id = 5, .len = 1};
+		ok("no handler is not an error",
+				script_lua_dispatch(s, &none, NULL, 0));
+		ok("wants() false with nothing registered",
+				!script_lua_wants(s, SCRIPT_EV_CAN_SID));
+
+		ok("handler registers", run(s,
+				"seen = {} "
+				"vesc.on_can(function(id, data, is_ext, bus) "
+				"  seen.id = id seen.data = data seen.ext = is_ext seen.bus = bus "
+				"end)", NULL, 0));
+		ok("wants() true once registered",
+				script_lua_wants(s, SCRIPT_EV_CAN_SID));
+
+		script_event_t ev = {.type = SCRIPT_EV_CAN_SID, .id = 0x123, .len = 3};
+		memcpy(ev.data, "abc", 3);
+		char err[256] = {0};
+		ok("can frame dispatched", script_lua_dispatch(s, &ev, err, sizeof(err)));
+		ok("handler saw the id", run(s, "assert(seen.id == 0x123)", NULL, 0));
+		ok("handler saw the payload as a string",
+				run(s, "assert(seen.data == 'abc')", NULL, 0));
+		ok("standard id reports not extended",
+				run(s, "assert(seen.ext == false)", NULL, 0));
+		ok("bus 1 reported", run(s, "assert(seen.bus == 1)", NULL, 0));
+
+		// A payload with a zero byte in it must survive: CAN carries binary,
+		// and a C string would stop at the first NUL.
+		script_event_t bin = {.type = SCRIPT_EV_CAN_EID, .id = 7, .len = 4};
+		memcpy(bin.data, "a\0bc", 4);
+		ok("binary payload dispatched", script_lua_dispatch(s, &bin, err, sizeof(err)));
+		ok("payload keeps embedded NUL and length",
+				run(s, "assert(#seen.data == 4 and seen.data:byte(2) == 0)", NULL, 0));
+		ok("extended id reports extended", run(s, "assert(seen.ext == true)", NULL, 0));
+
+		// Bus 2 is a different event type but the same handler.
+		script_event_t b2 = {.type = SCRIPT_EV_CAN2_SID, .id = 9, .len = 1};
+		b2.data[0] = 1;
+		ok("bus 2 dispatched", script_lua_dispatch(s, &b2, err, sizeof(err)));
+		ok("bus 2 reported", run(s, "assert(seen.bus == 2)", NULL, 0));
+
+		// A handler that raises is reported but stays registered: one bad
+		// frame must not unsubscribe a vehicle from its own CAN traffic.
+		ok("failing handler installs",
+				run(s, "vesc.on_can(function() error('handler boom') end)", NULL, 0));
+		memset(err, 0, sizeof(err));
+		ok("failing handler reported",
+				!script_lua_dispatch(s, &ev, err, sizeof(err)));
+		ok("failure message kept", strstr(err, "handler boom") != NULL);
+		ok("handler still registered after raising",
+				script_lua_wants(s, SCRIPT_EV_CAN_SID));
+
+		// Unregistering.
+		ok("handler clears", run(s, "vesc.on_can(nil)", NULL, 0));
+		ok("wants() false after clearing",
+				!script_lua_wants(s, SCRIPT_EV_CAN_SID));
+
+		// A non-function is refused at registration rather than at dispatch.
+		ok("non-function handler refused",
+				!run(s, "vesc.on_can(42)", NULL, 0));
+
+		script_lua_close(s);
+	}
+
+	// App data and the timer.
+	{
+		script_lua_t *s = open_engine(0, NULL);
+		script_lua_install_events(s);
+
+		ok("app data handler registers", run(s,
+				"got = nil vesc.on_app_data(function(d) got = d end)", NULL, 0));
+		script_event_t ev = {.type = SCRIPT_EV_APP_DATA, .len = 5};
+		memcpy(ev.data, "hello", 5);
+		ok("app data dispatched", script_lua_dispatch(s, &ev, NULL, 0));
+		ok("app data arrived", run(s, "assert(got == 'hello')", NULL, 0));
+
+		ok("no timer period by default", script_lua_timer_period(s) == 0);
+		ok("timer registers", run(s,
+				"ticks = 0 vesc.on_timer(50, function() ticks = ticks + 1 end)",
+				NULL, 0));
+		ok("timer period reported", script_lua_timer_period(s) == 50);
+
+		script_event_t t = {.type = SCRIPT_EV_TIMER};
+		ok("timer dispatched", script_lua_dispatch(s, &t, NULL, 0));
+		ok("timer dispatched again", script_lua_dispatch(s, &t, NULL, 0));
+		ok("timer ran twice", run(s, "assert(ticks == 2)", NULL, 0));
+
+		// A zero or negative period is clamped, not rejected: asking for zero
+		// means "as fast as you can", and honouring that literally would
+		// starve the rest of the core.
+		ok("zero period accepted", run(s, "vesc.on_timer(0, function() end)", NULL, 0));
+		ok("zero period clamped", script_lua_timer_period(s) == 1);
+
+		script_lua_close(s);
+	}
+
+	// An unknown event type is ignored rather than mis-dispatched.
+	{
+		script_lua_t *s = open_engine(0, NULL);
+		script_lua_install_events(s);
+		script_event_t ev = {.type = 200, .len = 1};
+		ok("unknown event type ignored", script_lua_dispatch(s, &ev, NULL, 0));
+		ok("wants() false for unknown type", !script_lua_wants(s, 200));
+		script_lua_close(s);
+	}
+
 	if (argc > 1) {
 		run_packed(argv[1]);
 	} else {

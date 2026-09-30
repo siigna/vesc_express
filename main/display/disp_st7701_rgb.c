@@ -346,6 +346,24 @@ bool disp_st7701_rgb_init(const disp_st7701_rgb_cfg_t *cfg) {
 		.vsync_gpio_num = cfg->pin_vsync,
 		.hsync_gpio_num = cfg->pin_hsync,
 		.disp_gpio_num  = -1,
+		/*
+		 * UNRESOLVED, and the next thing to settle on this board.
+		 *
+		 * A framebuffer in PSRAM is DMAed out continuously by the RGB
+		 * peripheral, and a flash write disables the cache while it runs. On
+		 * the Waveshare S3 Touch LCD 4 that combination panics the CPU with
+		 * "Cache error / MMU entry fault", repeatably, in a boot loop: the
+		 * dash package writes roughly seventy-five eeprom entries when it
+		 * restores defaults, and each one is a flash operation while this
+		 * panel is refreshing.
+		 *
+		 * The bounce buffer below is meant to decouple them and is not
+		 * sufficient on its own here. What has not been tried: the IDF's own
+		 * options for this case -- refresh_on_demand, a larger bounce buffer,
+		 * or keeping the framebuffer out of PSRAM entirely -- and checking
+		 * whether the eeprom writes can be deferred until after the panel is
+		 * up rather than performed during startup.
+		 */
 		.flags = {
 			.fb_in_psram = true,
 		},

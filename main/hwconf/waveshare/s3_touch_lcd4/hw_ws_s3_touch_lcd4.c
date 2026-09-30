@@ -121,7 +121,7 @@ static void ch32_display_power_on(void) {
 	bool ok = false;
 
 	for (int attempt = 0; attempt < 3 && !ok; attempt++) {
-		ok = ch32_write(CH32_REG_DIRECTION, CH32_DIR_OUTPUTS) == ESP_OK &&
+		ok = ch32_write(CH32_REG_DIRECTION, CH32_DIR_DEFAULT) == ESP_OK &&
 			 ch32_write(CH32_REG_OUTPUT, CH32_OUT_RESET) == ESP_OK;
 
 		if (!ok) {
@@ -146,8 +146,8 @@ static void ch32_display_power_on(void) {
 		gpio_set_level(TOUCH_INT, 0);
 		esp_rom_delay_us(100);
 
-		ok = ch32_write(CH32_REG_DIRECTION, CH32_DIR_OUTPUTS) == ESP_OK &&
-			 ch32_write(CH32_REG_OUTPUT, CH32_OUT_DISPLAY_ON) == ESP_OK;
+		ok = ch32_write(CH32_REG_DIRECTION, CH32_DIR_DEFAULT) == ESP_OK &&
+			 ch32_write(CH32_REG_OUTPUT, CH32_OUT_RUN) == ESP_OK;
 
 		// Held past the release, then handed back as the input the driver
 		// attaches its interrupt to.
@@ -156,25 +156,8 @@ static void ch32_display_power_on(void) {
 
 		if (ok) {
 			vTaskDelay(pdMS_TO_TICKS(200));
-			/*
-			 * Backlight is a duty cycle on the CH32 rather than an ESP32 pin.
-			 *
-			 * UNRESOLVED: this is not sufficient on the one Rev4.0 board this
-			 * has been tried on. The panel is lit at power-up before anything
-			 * writes this chip, and dark once this runs -- and it stays dark
-			 * even with the PWM register reading back 255, with the vendor's
-			 * own initDisplayPower sequence performed verbatim, and with every
-			 * combination of the unnamed output bits 0, 2 and 4 that does not
-			 * also sound the buzzer. So something here turns it off and
-			 * nothing found so far turns it back on without a power cycle.
-			 *
-			 * What has not been tried, and is the next thing to do: restore
-			 * the factory image, read REG_DIRECTION, REG_OUTPUT and REG_PWM on
-			 * a boot that demonstrably lights the panel, and match that
-			 * exactly. Measuring the working state should have come before
-			 * writing this chip at all.
-			 */
-			ch32_write(CH32_REG_PWM, 255);
+			// Backlight: 0 is brightest. See CH32_PWM_BRIGHTEST.
+			ch32_write(CH32_REG_PWM, CH32_PWM_BRIGHTEST);
 		} else {
 			vTaskDelay(pdMS_TO_TICKS(20));
 		}
@@ -265,10 +248,24 @@ static void load_extensions(bool main_found) {
 	lbm_add_extension("touch-pins", ext_touch_pins);
 }
 
+/*
+ * Set to 0 to leave the CH32 entirely alone at boot.
+ *
+ * Useful for two things. It bisects a fault against a firmware that does not
+ * touch the chip, and -- because the CH32 has its own supply and does not reset
+ * when the ESP32 does -- it lets the configuration another firmware left behind
+ * be read back intact. Restore the factory image, let it light the panel, flash
+ * a build with this at 0, and the registers still hold whatever the working
+ * firmware set.
+ */
+#define CH32_INIT_AT_BOOT		1
+
 void hw_init(void) {
 	// Before the lisp starts, so a package calling disp-init finds a panel
 	// that has been reset and powered.
+#if CH32_INIT_AT_BOOT
 	ch32_display_power_on();
+#endif
 
 	lispif_add_ext_load_callback(load_extensions);
 }

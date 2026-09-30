@@ -106,20 +106,64 @@
 #define CH32_REG_PWM			0x05
 #define CH32_REG_ADC			0x06
 
-#define CH32_PIN_TOUCH_RST		(1 << 1)
+/* EXIO0..EXIO7, from the pin table on the V4.0 schematic.
+ *
+ * Not from the Waveshare wiki, whose EXIO numbering is for the pre-V4 boards
+ * that used a TCA9554, and not only from the vendor's header, which names bits
+ * 1, 3, 5, 6 and 7 but leaves 2 and 4 unnamed. Those two matter.
+ */
+#define CH32_PIN_TP_RST			(1 << 1)
+#define CH32_PIN_TP_INT			(1 << 2)	// selects the GT911 address
 #define CH32_PIN_LCD_RST		(1 << 3)
+#define CH32_PIN_SDCS			(1 << 4)	// SD card chip select, idles high
 #define CH32_PIN_SYS_EN			(1 << 5)
-#define CH32_PIN_BEE_EN			(1 << 6)	// buzzer: never driven high here
-#define CH32_PIN_RTC_INT		(1 << 7)	// input, left alone
+#define CH32_PIN_BEE_EN			(1 << 6)	// buzzer: high sounds it
+#define CH32_PIN_RTC_INT		(1 << 7)	// the RTC drives this
 
-// Bit 7 stays an input for the RTC. The buzzer is an output so that it is
-// held low deliberately rather than left floating.
-#define CH32_DIR_OUTPUTS		(CH32_PIN_TOUCH_RST | CH32_PIN_LCD_RST | \
-								 CH32_PIN_SYS_EN | CH32_PIN_BEE_EN)
+/*
+ * Measured power-on state, with the panel lit and everything working:
+ *
+ *     DIRECTION 0xFF   OUTPUT 0xFF   INPUT 0x00   PWM 0x00
+ *
+ * That is the reference. The only things this firmware needs to change are a
+ * reset pulse on TP_RST and LCD_RST, so it starts from all-high and drops just
+ * those two, rather than from the vendor's OUT_DISPLAY_ON of 0x2A.
+ *
+ * 0x2A sets bits 1, 3 and 5 and clears everything else, which also drives
+ * TP_INT low -- moving the GT911 from 0x14 to 0x5D and holding down the line
+ * the touch driver wants as an interrupt input -- asserts SDCS, and fights the
+ * RTC's own output on RTC_INT. Three peripherals disturbed to reset two.
+ *
+ * BEE_EN is held low rather than left at the 0xFF the board idles with.
+ * Writing this register with bit 6 set sounds the buzzer and nothing short of
+ * a power cycle stops it: the CH32 has no register that silences it, so a
+ * write of 0xFF here is not recoverable in software. Every value below clears
+ * bit 6 for that reason, and it is the one deliberate departure from the
+ * measured idle state.
+ */
+/* The board idles with this, and it is what the vendor writes too. Left as
+ * measured rather than narrowed: the semantics of this register are not
+ * deducible from the schematic, and every attempt to reason about them here
+ * has cost something. */
+#define CH32_DIR_DEFAULT		0xFF
 
-#define CH32_OUT_RESET			0x00
-#define CH32_OUT_DISPLAY_ON		(CH32_PIN_SYS_EN | CH32_PIN_LCD_RST | \
-								 CH32_PIN_TOUCH_RST)
+#define CH32_OUT_RUN			(0xFF & ~CH32_PIN_BEE_EN)
+#define CH32_OUT_RESET			(CH32_OUT_RUN & ~(CH32_PIN_TP_RST | CH32_PIN_LCD_RST))
+
+/*
+ * Backlight, and it is not an enable.
+ *
+ * EXIO_PWM is its own CH32 pin, and on the schematic it feeds the feedback
+ * divider of the AP3032KTR-G1 boost LED driver through a 10K resistor and a
+ * 1uF filter, alongside the 62K from the 5.1 ohm current sense. Raising its
+ * average voltage raises the feedback node, the driver reads that as too much
+ * LED current and backs off. So the duty is inverted: 0 is full brightness and
+ * 255 is off, which the topology explains rather than merely asserts.
+ *
+ * Writing 255 here is what kept this panel dark, on every boot, while the rest
+ * of the driver reported success.
+ */
+#define CH32_PWM_BRIGHTEST		0
 
 // Touch (GT911, I2C). Reset is on the CH32, not on a pin of its own.
 #define TOUCH_SDA               15

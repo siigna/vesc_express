@@ -86,12 +86,13 @@ static esp_err_t touch_esp_lcd_deinit(void);
 static esp_err_t touch_esp_lcd_read_data(void);
 static esp_err_t touch_esp_lcd_get_data(lispif_touch_point_data_t *data, uint8_t *point_cnt, uint8_t max_point_cnt);
 static esp_err_t touch_init_i2c_bus(int sda, int scl, uint32_t freq);
-static esp_err_t touch_init_i2c_esp_lcd(int sda, int scl, int rst, int int_pin, uint16_t width, uint16_t height, uint32_t freq, esp_lcd_panel_io_i2c_config_t io_conf, void *driver_data, touch_i2c_create_fn_t create_fn, lispif_touch_driver_t *driver);
+static esp_err_t touch_init_i2c_esp_lcd(int sda, int scl, int rst, int int_pin, uint16_t width, uint16_t height, uint32_t freq, esp_lcd_panel_io_i2c_config_t io_conf, void *driver_data, touch_i2c_create_fn_t create_fn, lispif_touch_driver_t *driver, uint8_t alt_addr);
 static esp_err_t touch_init_cst816s_esp_lcd(int sda, int scl, int rst, int int_pin, uint16_t width, uint16_t height, uint32_t freq, lispif_touch_driver_t *driver);
 static esp_err_t touch_init_gt911_esp_lcd(int sda, int scl, int rst, int int_pin, uint16_t width, uint16_t height, uint32_t freq, lispif_touch_driver_t *driver);
 static esp_err_t touch_init_cst9217_esp_lcd(int sda, int scl, int rst, int int_pin, uint16_t width, uint16_t height, uint32_t freq, lispif_touch_driver_t *driver);
 static esp_err_t touch_init_xpt2046_esp_lcd(int host, int mosi, int miso, int sclk, int cs, int int_pin, uint16_t width, uint16_t height, uint32_t freq, lispif_touch_driver_t *driver);
 static bool touch_lock_loaded_or_error(void);
+static bool touch_i2c_addr_present(uint8_t address);
 static bool touch_point_changed_enough(const lispif_touch_point_data_t *prev, const lispif_touch_point_data_t *curr);
 
 static bool start_flatten_with_gc(lbm_flat_value_t *v, size_t buffer_size) {
@@ -263,7 +264,7 @@ static esp_err_t touch_init_i2c_bus(int sda, int scl, uint32_t freq) {
 	return ESP_OK;
 }
 
-static esp_err_t touch_init_i2c_esp_lcd(int sda, int scl, int rst, int int_pin, uint16_t width, uint16_t height, uint32_t freq, esp_lcd_panel_io_i2c_config_t io_conf, void *driver_data, touch_i2c_create_fn_t create_fn, lispif_touch_driver_t *driver) {
+static esp_err_t touch_init_i2c_esp_lcd(int sda, int scl, int rst, int int_pin, uint16_t width, uint16_t height, uint32_t freq, esp_lcd_panel_io_i2c_config_t io_conf, void *driver_data, touch_i2c_create_fn_t create_fn, lispif_touch_driver_t *driver, uint8_t alt_addr) {
 	if (!driver || !create_fn) {
 		return ESP_ERR_INVALID_ARG;
 	}
@@ -278,6 +279,17 @@ static esp_err_t touch_init_i2c_esp_lcd(int sda, int scl, int rst, int int_pin, 
 	esp_err_t res = touch_init_i2c_bus(sda, scl, freq);
 	if (res != ESP_OK) {
 		return res;
+	}
+
+	// A part with two possible addresses gets probed rather than assumed. The
+	// GT911 picks between 0x5D and 0x14 from its INT level as reset is
+	// released, and which one a board lands on is a property of its wiring.
+	if (alt_addr && !touch_i2c_addr_present(io_conf.dev_addr) &&
+			touch_i2c_addr_present(alt_addr)) {
+		io_conf.dev_addr = alt_addr;
+		if (driver_data) {
+			((esp_lcd_touch_io_gt911_config_t *)driver_data)->dev_addr = alt_addr;
+		}
 	}
 
 	io_conf.scl_speed_hz = 0;
@@ -322,12 +334,12 @@ static esp_err_t touch_init_i2c_esp_lcd(int sda, int scl, int rst, int int_pin, 
 
 static esp_err_t touch_init_cst816s_esp_lcd(int sda, int scl, int rst, int int_pin, uint16_t width, uint16_t height, uint32_t freq, lispif_touch_driver_t *driver) {
 	esp_lcd_panel_io_i2c_config_t io_conf = ESP_LCD_TOUCH_IO_I2C_CST816S_CONFIG();
-	return touch_init_i2c_esp_lcd(sda, scl, rst, int_pin, width, height, freq, io_conf, NULL, esp_lcd_touch_new_i2c_cst816s, driver);
+	return touch_init_i2c_esp_lcd(sda, scl, rst, int_pin, width, height, freq, io_conf, NULL, esp_lcd_touch_new_i2c_cst816s, driver, 0);
 }
 
 static esp_err_t touch_init_axs15231_esp_lcd(int sda, int scl, int rst, int int_pin, uint16_t width, uint16_t height, uint32_t freq, lispif_touch_driver_t *driver) {
 	esp_lcd_panel_io_i2c_config_t io_conf = ESP_LCD_TOUCH_IO_I2C_AXS15231B_CONFIG();
-	return touch_init_i2c_esp_lcd(sda, scl, rst, int_pin, width, height, freq, io_conf, NULL, esp_lcd_touch_new_i2c_axs15231b, driver);
+	return touch_init_i2c_esp_lcd(sda, scl, rst, int_pin, width, height, freq, io_conf, NULL, esp_lcd_touch_new_i2c_axs15231b, driver, 0);
 }
 
 // Does anything answer at this address? A zero length write is the cheapest
@@ -364,24 +376,21 @@ static bool touch_i2c_addr_present(uint8_t address) {
 static esp_err_t touch_init_gt911_esp_lcd(int sda, int scl, int rst, int int_pin, uint16_t width, uint16_t height, uint32_t freq, lispif_touch_driver_t *driver) {
 	esp_lcd_panel_io_i2c_config_t io_conf = ESP_LCD_TOUCH_IO_I2C_GT911_CONFIG();
 
-	// The bus has to be up to probe. touch_init_i2c_esp_lcd opens it again
-	// below and reuses what is already installed.
-	esp_err_t bus_res = touch_init_i2c_bus(sda, scl, freq);
-	if (bus_res == ESP_OK && !touch_i2c_addr_present(io_conf.dev_addr) &&
-			touch_i2c_addr_present(GT911_ADDR_ALT)) {
-		io_conf.dev_addr = GT911_ADDR_ALT;
-	}
-
+	// The address is probed inside touch_init_i2c_esp_lcd, once its own bus
+	// setup has run. Opening the bus here as well installed the driver twice:
+	// the second call recovered, but it logged "i2c driver install error" and
+	// left touch_owns_i2c_driver false, so the deinit path would not have
+	// released what it allocated.
 	esp_lcd_touch_io_gt911_config_t gt911_cfg = {
 			.dev_addr = io_conf.dev_addr,
 	};
 
-	return touch_init_i2c_esp_lcd(sda, scl, rst, int_pin, width, height, freq, io_conf, &gt911_cfg, esp_lcd_touch_new_i2c_gt911, driver);
+	return touch_init_i2c_esp_lcd(sda, scl, rst, int_pin, width, height, freq, io_conf, &gt911_cfg, esp_lcd_touch_new_i2c_gt911, driver, GT911_ADDR_ALT);
 }
 
 static esp_err_t touch_init_cst9217_esp_lcd(int sda, int scl, int rst, int int_pin, uint16_t width, uint16_t height, uint32_t freq, lispif_touch_driver_t *driver) {
 	esp_lcd_panel_io_i2c_config_t io_conf = ESP_LCD_TOUCH_IO_I2C_CST9217_CONFIG();
-	return touch_init_i2c_esp_lcd(sda, scl, rst, int_pin, width, height, freq, io_conf, NULL, esp_lcd_touch_new_i2c_cst9217, driver);
+	return touch_init_i2c_esp_lcd(sda, scl, rst, int_pin, width, height, freq, io_conf, NULL, esp_lcd_touch_new_i2c_cst9217, driver, 0);
 }
 
 static esp_err_t touch_init_xpt2046_esp_lcd(int host, int mosi, int miso, int sclk, int cs, int int_pin, uint16_t width, uint16_t height, uint32_t freq, lispif_touch_driver_t *driver) {

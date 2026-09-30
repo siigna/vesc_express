@@ -87,20 +87,30 @@ static void rotate_rgb565(const uint16_t *src, uint16_t *dst, int w, int h, int 
     }
 }
 
-static bool convert_to_rgb565(const image_buffer_t *img, color_t *colors, uint16_t *dst) {
-    uint32_t num_pix = (uint32_t)img->width * (uint32_t)img->height;
+/*
+ * Convert a horizontal band of an image to rgb565.
+ *
+ * start and count are in pixels from the top left of the image, so a caller
+ * can work through a tall image in pieces that fit the scratch buffer. The
+ * source index stays absolute -- the packed formats address their bits by it,
+ * and COLOR_TO_RGB888 needs the real x and y for a gradient -- while the
+ * destination is written from zero.
+ */
+static bool convert_to_rgb565(const image_buffer_t *img, color_t *colors, uint16_t *dst,
+        uint32_t start, uint32_t count) {
+    const uint32_t end = start + count;
 
     switch (img->fmt) {
     case indexed2:
         if (!colors) {
             return false;
         }
-        for (uint32_t i = 0; i < num_pix; i++) {
+        for (uint32_t i = start; i < end; i++) {
             uint32_t byte = i >> 3;
             uint32_t bit = 7U - (i & 0x7U);
             uint32_t color_ind = (img->data[byte] >> bit) & 0x1U;
             uint32_t rgb = COLOR_TO_RGB888(colors[color_ind], i % img->width, i / img->width);
-            dst[i] = rgb888_to_rgb565(rgb);
+            dst[i - start] = rgb888_to_rgb565(rgb);
         }
         return true;
 
@@ -108,12 +118,12 @@ static bool convert_to_rgb565(const image_buffer_t *img, color_t *colors, uint16
         if (!colors) {
             return false;
         }
-        for (uint32_t i = 0; i < num_pix; i++) {
+        for (uint32_t i = start; i < end; i++) {
             uint32_t byte = i >> 2;
             uint32_t bit = (3U - (i & 0x3U)) * 2U;
             uint32_t color_ind = (img->data[byte] >> bit) & 0x3U;
             uint32_t rgb = COLOR_TO_RGB888(colors[color_ind], i % img->width, i / img->width);
-            dst[i] = rgb888_to_rgb565(rgb);
+            dst[i - start] = rgb888_to_rgb565(rgb);
         }
         return true;
 
@@ -121,38 +131,38 @@ static bool convert_to_rgb565(const image_buffer_t *img, color_t *colors, uint16
         if (!colors) {
             return false;
         }
-        for (uint32_t i = 0; i < num_pix; i++) {
+        for (uint32_t i = start; i < end; i++) {
             uint32_t byte = i >> 1;
             uint32_t bit = (1U - (i & 0x1U)) * 4U;
             uint32_t color_ind = (img->data[byte] >> bit) & 0xFU;
             uint32_t rgb = COLOR_TO_RGB888(colors[color_ind], i % img->width, i / img->width);
-            dst[i] = rgb888_to_rgb565(rgb);
+            dst[i - start] = rgb888_to_rgb565(rgb);
         }
         return true;
 
     case rgb332:
-        for (uint32_t i = 0; i < num_pix; i++) {
+        for (uint32_t i = start; i < end; i++) {
             uint8_t pix = img->data[i];
             uint32_t r = (uint32_t)((pix >> 5) & 0x7U);
             uint32_t g = (uint32_t)((pix >> 2) & 0x7U);
             uint32_t b = (uint32_t)(pix & 0x3U);
             uint32_t rgb = (r << 21) | (g << 13) | (b << 6);
-            dst[i] = rgb888_to_rgb565(rgb);
+            dst[i - start] = rgb888_to_rgb565(rgb);
         }
         return true;
 
     case rgb565:
-        for (uint32_t i = 0; i < num_pix; i++) {
-            dst[i] = (uint16_t)(((uint16_t)img->data[2 * i] << 8) | (uint16_t)img->data[2 * i + 1]);
+        for (uint32_t i = start; i < end; i++) {
+            dst[i - start] = (uint16_t)(((uint16_t)img->data[2 * i] << 8) | (uint16_t)img->data[2 * i + 1]);
         }
         return true;
 
     case rgb888:
-        for (uint32_t i = 0; i < num_pix; i++) {
+        for (uint32_t i = start; i < end; i++) {
             uint32_t rgb = ((uint32_t)img->data[3 * i] << 16) |
                            ((uint32_t)img->data[3 * i + 1] << 8) |
                            (uint32_t)img->data[3 * i + 2];
-            dst[i] = rgb888_to_rgb565(rgb);
+            dst[i - start] = rgb888_to_rgb565(rgb);
         }
         return true;
 
@@ -190,26 +200,59 @@ bool disp_st7701_rgb_render_image(image_buffer_t *img, uint16_t x, uint16_t y, c
 		return draw_rgb565(x, y, iw, ih, img->data);
 	}
 
-	uint32_t num_pix = (uint32_t)iw * (uint32_t)ih;
-	if (!m_pix_buf || (num_pix * 2U) > m_pix_buf_bytes) {
-		// Chunking a rotated image is not worth the complexity; refuse rather
-		// than draw something wrong.
+	if (!m_pix_buf) {
 		return false;
 	}
 
 	uint16_t *buf = (uint16_t *)m_pix_buf;
-	if (!convert_to_rgb565(img, colors, buf)) {
-		return false;
-	}
+	uint32_t num_pix = (uint32_t)iw * (uint32_t)ih;
 
+	/*
+	 * Unrotated, the image is converted and pushed a band at a time, so only
+	 * the band has to fit the scratch buffer rather than the whole image.
+	 *
+	 * It used to require the lot, and silently refused anything bigger: with a
+	 * 480 px wide panel and a 40 line buffer the limit was 38400 pixels, which
+	 * a full width strip taller than 80 lines exceeds. That is most of what a
+	 * dash draws -- the speed readout and the splash among them -- so the
+	 * background cleared and the large elements simply never appeared. A black
+	 * screen with a few small pills on it is what that looks like, and nothing
+	 * reported an error the display could not already have reported.
+	 */
 	if (m_rotation == 0) {
-		return draw_rgb565(x, y, iw, ih, buf);
+		int band = (int)(m_pix_buf_bytes / (2U * (uint32_t)iw));
+		if (band > ih) {
+			band = ih;
+		}
+		if (band < 1) {
+			return false;
+		}
+
+		for (int row = 0; row < ih; row += band) {
+			int rows = (row + band <= ih) ? band : (ih - row);
+			if (!convert_to_rgb565(img, colors, buf,
+					(uint32_t)row * (uint32_t)iw, (uint32_t)rows * (uint32_t)iw)) {
+				return false;
+			}
+			if (!draw_rgb565(x, y + row, iw, rows, buf)) {
+				return false;
+			}
+		}
+
+		return true;
 	}
 
-	// Rotate via the second half of the scratch buffer
+	// Rotated: the whole image is needed at once to turn it, plus room for the
+	// turned copy. Banding that is not worth the complexity, so it still
+	// refuses rather than drawing something wrong.
 	if ((num_pix * 4U) > m_pix_buf_bytes) {
 		return false;
 	}
+
+	if (!convert_to_rgb565(img, colors, buf, 0, num_pix)) {
+		return false;
+	}
+
 	uint16_t *rot = buf + num_pix;
 	rotate_rgb565(buf, rot, iw, ih, m_rotation);
 	return draw_rgb565(x, y, dw, dh, rot);
@@ -314,6 +357,27 @@ bool disp_st7701_rgb_init(const disp_st7701_rgb_cfg_t *cfg) {
 	timing.v_res = cfg->height;
 	if (cfg->pclk_hz > 0) {
 		timing.pclk_hz = cfg->pclk_hz;
+	}
+
+	/*
+	 * Porches and sync widths come from the board rather than from the
+	 * component's default macro when it supplies them.
+	 *
+	 * The default is generic for "an ST7701 at 480x480" and is not what every
+	 * panel wired to one wants. The Waveshare ESP32-S3-Touch-LCD-4 needs a
+	 * horizontal back porch of 50 against the macro's 10, and a panel given
+	 * the wrong blanking does not sync: it stays dark while every call up the
+	 * stack still succeeds, because an RGB panel's draw_bitmap only copies
+	 * into a framebuffer and cannot tell whether the glass is showing it.
+	 * Nothing reports an error, which is what makes this worth spelling out.
+	 */
+	if (cfg->hsync_pulse_width > 0) {
+		timing.hsync_pulse_width = cfg->hsync_pulse_width;
+		timing.hsync_back_porch = cfg->hsync_back_porch;
+		timing.hsync_front_porch = cfg->hsync_front_porch;
+		timing.vsync_pulse_width = cfg->vsync_pulse_width;
+		timing.vsync_back_porch = cfg->vsync_back_porch;
+		timing.vsync_front_porch = cfg->vsync_front_porch;
 	}
 	rgb_cfg.timings = timing;
 

@@ -330,8 +330,48 @@ static esp_err_t touch_init_axs15231_esp_lcd(int sda, int scl, int rst, int int_
 	return touch_init_i2c_esp_lcd(sda, scl, rst, int_pin, width, height, freq, io_conf, NULL, esp_lcd_touch_new_i2c_axs15231b, driver);
 }
 
+// Does anything answer at this address? A zero length write is the cheapest
+// probe there is: the address byte either gets an ACK or it does not.
+static bool touch_i2c_addr_present(uint8_t address) {
+	i2c_cmd_handle_t cmd = i2c_cmd_link_create();
+	if (!cmd) {
+		return false;
+	}
+
+	i2c_master_start(cmd);
+	i2c_master_write_byte(cmd, (address << 1) | I2C_MASTER_WRITE, true);
+	i2c_master_stop(cmd);
+	esp_err_t res = i2c_master_cmd_begin(TOUCH_I2C_PORT, cmd, pdMS_TO_TICKS(50));
+	i2c_cmd_link_delete(cmd);
+
+	return res == ESP_OK;
+}
+
+/*
+ * The GT911 has two possible I2C addresses and picks between them as its reset
+ * is released, from the level on its INT pin: 0x5D or 0x14. Which one a board
+ * ends up on is a property of its wiring, not of the driver -- the Waveshare
+ * ESP32-S3-Touch-LCD-4 answers at 0x14, and driving INT low across the reset
+ * does not move it, which was tried.
+ *
+ * So probe rather than assume. Both addresses are valid for this part, the
+ * probe is one byte, and it runs once at load. Without this a board on the
+ * second address reports nothing more useful than "Touch not loaded", which is
+ * indistinguishable from a broken connector.
+ */
+#define GT911_ADDR_ALT	0x14
+
 static esp_err_t touch_init_gt911_esp_lcd(int sda, int scl, int rst, int int_pin, uint16_t width, uint16_t height, uint32_t freq, lispif_touch_driver_t *driver) {
 	esp_lcd_panel_io_i2c_config_t io_conf = ESP_LCD_TOUCH_IO_I2C_GT911_CONFIG();
+
+	// The bus has to be up to probe. touch_init_i2c_esp_lcd opens it again
+	// below and reuses what is already installed.
+	esp_err_t bus_res = touch_init_i2c_bus(sda, scl, freq);
+	if (bus_res == ESP_OK && !touch_i2c_addr_present(io_conf.dev_addr) &&
+			touch_i2c_addr_present(GT911_ADDR_ALT)) {
+		io_conf.dev_addr = GT911_ADDR_ALT;
+	}
+
 	esp_lcd_touch_io_gt911_config_t gt911_cfg = {
 			.dev_addr = io_conf.dev_addr,
 	};

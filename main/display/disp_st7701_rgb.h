@@ -43,6 +43,23 @@ typedef struct {
 	int pin_data[16];	// B0..B4, G0..G5, R0..R4
 
 	int pclk_hz;		// 0 for the panel default (16 MHz)
+
+	/*
+	 * Blanking intervals. Leave hsync_pulse_width at 0 to take the ST7701
+	 * component's generic 480x480 defaults.
+	 *
+	 * Worth setting from the board: the defaults are generic for the
+	 * controller, not for a particular panel, and a panel given blanking it
+	 * does not expect simply does not sync. It stays dark with no error
+	 * anywhere, because on an RGB panel a draw only writes a framebuffer and
+	 * nothing in the stack can see whether the glass is scanning it out.
+	 */
+	int hsync_pulse_width;
+	int hsync_back_porch;
+	int hsync_front_porch;
+	int vsync_pulse_width;
+	int vsync_back_porch;
+	int vsync_front_porch;
 } disp_st7701_rgb_cfg_t;
 
 bool disp_st7701_rgb_init(const disp_st7701_rgb_cfg_t *cfg);

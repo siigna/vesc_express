@@ -94,6 +94,7 @@ set(COMPONENT_SRCS
 "display/disp_st7701.c"
 "display/disp_st7701_rgb.c"
 "display/clay_layout.c"
+"display/disp_backend.c"
 
 "drivers/bme280/bme280.c"
 "drivers/bme280/bme280_if.c"
@@ -156,10 +157,20 @@ if(SCRIPT_ENGINE STREQUAL "lua")
     foreach(src ${COMPONENT_SRCS})
         # The lispBM tree itself, and the display drivers, which register
         # their own extensions alongside the driver code.
+        # tinygfx and tjpgd sit under lispBM/utils but depend on nothing from
+        # the interpreter -- they are the drawing primitives both engines use
+        # -- so a lua build keeps them.
+        if(src MATCHES "^lispBM/utils/")
+            continue()
+        endif()
         if(src MATCHES "^lispBM/" OR src MATCHES "^display/disp_")
             list(APPEND LBM_DEPENDENT ${src})
         endif()
     endforeach()
+
+    # The neutral registry matches the display/disp_ pattern above but is
+    # wanted in both builds.
+    list(REMOVE_ITEM LBM_DEPENDENT "display/disp_backend.c")
 
     foreach(src ${LBM_DEPENDENT})
         list(REMOVE_ITEM COMPONENT_SRCS ${src})
@@ -172,6 +183,7 @@ if(SCRIPT_ENGINE STREQUAL "lua")
         "script/script_lua.c"
         "script/lua_vesc_ext.c"
         "script/lua_vesc_io.c"
+        "script/lua_vesc_disp.c"
         "script/luaif.c"
     )
 

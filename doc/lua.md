@@ -175,6 +175,59 @@ It returns the bytes read, or `true` for a write with no read, or `nil` plus
 an error string on a bus error — so a missing device is distinguishable from
 one that answered with zeros.
 
+### Drawing
+
+Buffers are Lua objects with methods, and the drawing is tinygfx — the same
+code the lisp engine draws with, so both engines produce identical pixels.
+
+```lua
+local b = vesc.img_buffer("indexed4", 240, 60)
+b:clear(0)
+b:rectangle(0, 0, 240, 60, 1, true)
+b:line(0, 30, 239, 30, 2)
+b:circle(120, 30, 20, 3)
+vesc.disp_render(b, 0, 0, {0x000000, 0x202020, 0x00FF00, 0xFFFFFF})
+```
+
+| method | notes |
+|---|---|
+| `vesc.img_buffer(fmt, w, h)` | `indexed2/4/16`, `rgb332`, `rgb565`, `rgb888` |
+| `b:dims()` | width, height |
+| `b:clear([c])` | |
+| `b:setpix(x, y, c)` | clipped |
+| `b:getpix(x, y)` | `nil` off-buffer |
+| `b:line(x0, y0, x1, y1, c, [thick], [dot1], [dot2])` | |
+| `b:rectangle(x, y, w, h, c, [filled], [thick], [radius])` | |
+| `b:circle(x, y, r, c, [filled], [thick])` | |
+| `b:arc(x, y, r, a0, a1, c, [thick], [rounded], [filled], [sector], [segment])` | |
+| `b:triangle(x0,y0, x1,y1, x2,y2, c)` | filled |
+| `b:blit(src, x, y, [transparent])` | |
+| `vesc.disp_render(b, x, y, [palette])` | false if no driver |
+| `vesc.disp_clear([c])`, `vesc.disp_reset()`, `vesc.disp_loaded()` | |
+
+Two differences from lisp worth knowing:
+
+**No pool to declare.** LispBM allocates image buffers from a defrag pool the
+script creates and sizes by hand (`dm-create`), and getting that size wrong
+fails later, at the point of drawing. Here a buffer is ordinary Lua userdata:
+counted against the memory ceiling, collected when the last reference goes,
+and a buffer too large for the ceiling raises out-of-memory at the point of
+allocation instead.
+
+**Indexed formats are worth using.** For an indexed buffer the palette is
+supplied at render time, so the same drawing can be rendered in different
+colours without redrawing it, and an `indexed4` buffer is a quarter the size
+of `rgb565` for the same area. On a dash drawing in a handful of colours that
+is the difference between fitting comfortably and not.
+
+Drawing off the edge of a buffer is clipped, not an error — a dash positions
+elements by arithmetic and running slightly off is routine. Reading off the
+edge returns `nil` rather than a pixel from the next row.
+
+`vesc.disp_render` returns `false` when no panel driver is loaded rather than
+raising, so a script on a board whose display failed to initialise can carry
+on doing everything else.
+
 ### Events
 
 Handlers run on the engine task, one at a time. The frame or payload is
@@ -215,7 +268,13 @@ will not silently unsubscribe you from the bus.
 
 ## What is not bound yet
 
-Display, touch, BLE, wifi, rgbled, BMS and IMU. Those lisp extensions are
+Panel *loaders*, touch, BLE, wifi, rgbled, BMS and IMU. Drawing works and is
+tested, but a Lua build has no way to bring a panel up yet: the loaders
+(`disp-load-st7789` and friends) live in the lisp extension file. A board that
+provides its own `disp-init` is the near-term route, and the driver callbacks
+themselves already register through the engine-neutral `disp_backend`.
+
+Also not bound: Those lisp extensions are
 written against the LispBM value ABI, and porting them is the bulk of the
 remaining work; the drivers underneath are engine-neutral. Boards whose own
 `hw_*.c` registers script extensions cannot be built with Lua yet for the

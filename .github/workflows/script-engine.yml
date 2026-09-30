@@ -98,7 +98,8 @@ jobs:
             --error-exitcode=1 --inline-suppr --quiet \
             --suppress=missingIncludeSystem \
             -I main/lua -I main/script \
-            main/script/script_pack.c main/script/script_lua.c
+            main/script/script_pack.c main/script/script_lua.c \
+            main/display/disp_backend.c
       # Configuration lives in main/script/.clang-tidy so that running this
       # locally and running it here cannot disagree. The Annex K checker is
       # disabled there: it asks for memset_s, which no embedded toolchain in

@@ -21,6 +21,25 @@
 
 
 #include "lispif_disp_extensions.h"
+#include "disp_backend.h"
+
+/*
+ * Registers a loaded driver with both the lisp interpreter's display
+ * extensions and the engine-neutral registry in disp_backend.
+ *
+ * The callbacks were always engine-neutral -- image_buffer_t and color_t come
+ * from tinygfx -- but the only way to register them lived inside the lisp
+ * extension code, so a build without LispBM had no way to know a panel was
+ * up. Recording them in both places keeps one source of truth for "which
+ * display is loaded" whichever engine is built.
+ */
+static void set_display_callbacks(
+		bool (*render)(image_buffer_t *img, uint16_t x, uint16_t y, color_t *colors),
+		void (*clear)(uint32_t color),
+		void (*reset)(void)) {
+	lbm_display_extensions_set_callbacks(render, clear, reset);
+	disp_backend_set(render, clear, reset);
+}
 #include "lispif.h"
 #include "lbm_utils.h"
 #include "lbm_custom_type.h"
@@ -79,7 +98,7 @@ static lbm_value ext_disp_load_sh8501b(lbm_value *args, lbm_uint argn) {
 
 	disp_sh8501b_init(gpio_sd0, gpio_clk, gpio_cs, gpio_reset, spi_mhz);
 
-	lbm_display_extensions_set_callbacks(
+	set_display_callbacks(
 			disp_sh8501b_render_image,
 			disp_sh8501b_clear,
 			disp_sh8501b_reset);
@@ -115,7 +134,7 @@ static lbm_value ext_disp_load_sh8601(lbm_value *args, lbm_uint argn) {
 
 	disp_sh8601_init(gpio_sd0, gpio_clk, gpio_cs, gpio_reset, gpio_dc, spi_mhz);
 
-	lbm_display_extensions_set_callbacks(
+	set_display_callbacks(
 			disp_sh8601_render_image,
 			disp_sh8601_clear,
 			disp_sh8601_reset);
@@ -151,7 +170,7 @@ static lbm_value ext_disp_load_ili9341(lbm_value *args, lbm_uint argn) {
 
 	disp_ili9341_init(gpio_sd0, gpio_clk, gpio_cs, gpio_reset, gpio_dc, spi_mhz);
 
-	lbm_display_extensions_set_callbacks(
+	set_display_callbacks(
 			disp_ili9341_render_image,
 			disp_ili9341_clear,
 			disp_ili9341_reset);
@@ -177,7 +196,7 @@ static lbm_value ext_disp_load_ssd1306(lbm_value *args, lbm_uint argn) {
 	}
 
 	disp_ssd1306_init(gpio_sda, gpio_scl, clk_speed);
-	lbm_display_extensions_set_callbacks(
+	set_display_callbacks(
 			disp_ssd1306_render_image,
 			disp_ssd1306_clear,
 			disp_ssd1306_reset);
@@ -212,7 +231,7 @@ static lbm_value ext_disp_load_st7789(lbm_value *args, lbm_uint argn) {
 
 	disp_st7789_init(gpio_sd0, gpio_clk, gpio_cs, gpio_reset, gpio_dc, spi_mhz);
 
-	lbm_display_extensions_set_callbacks(
+	set_display_callbacks(
 			disp_st7789_render_image,
 			disp_st7789_clear,
 			disp_st7789_reset);
@@ -247,7 +266,7 @@ static lbm_value ext_disp_load_st7789a(lbm_value *args, lbm_uint argn) {
 
 	disp_st7789a_init(gpio_sd0, gpio_clk, gpio_cs, gpio_reset, gpio_dc, spi_mhz);
 
-	lbm_display_extensions_set_callbacks(
+	set_display_callbacks(
 			disp_st7789a_render_image,
 			disp_st7789a_clear,
 			disp_st7789a_reset);
@@ -283,7 +302,7 @@ static lbm_value ext_disp_load_ili9488(lbm_value *args, lbm_uint argn) {
 
 	disp_ili9488_init(gpio_sd0, gpio_clk, gpio_cs, gpio_reset, gpio_dc, spi_mhz);
 
-	lbm_display_extensions_set_callbacks(
+	set_display_callbacks(
 			disp_ili9488_render_image,
 			disp_ili9488_clear,
 			disp_ili9488_reset);
@@ -316,7 +335,7 @@ static lbm_value ext_disp_load_st7735(lbm_value *args, lbm_uint argn) {
 	}
 
 	disp_st7735_init(gpio_sd0, gpio_clk, gpio_cs, gpio_reset, gpio_dc, spi_mhz);
-	lbm_display_extensions_set_callbacks(
+	set_display_callbacks(
 			disp_st7735_render_image,
 			disp_st7735_clear,
 			disp_st7735_reset);
@@ -351,7 +370,7 @@ static lbm_value ext_disp_load_ssd1351(lbm_value *args, lbm_uint argn) {
 
 	disp_ssd1351_init(gpio_sd0, gpio_clk, gpio_cs, gpio_reset, gpio_dc, spi_mhz);
 
-	lbm_display_extensions_set_callbacks(
+	set_display_callbacks(
 			disp_ssd1351_render_image,
 			disp_ssd1351_clear,
 			disp_ssd1351_reset);
@@ -385,7 +404,7 @@ static lbm_value ext_disp_load_icna3306(lbm_value *args, lbm_uint argn) {
 
 	disp_icna3306_init(gpio_sd0, gpio_clk, gpio_cs, gpio_reset, spi_mhz);
 
-	lbm_display_extensions_set_callbacks(
+	set_display_callbacks(
 			disp_icna3306_render_image,
 			disp_icna3306_clear,
 			disp_icna3306_reset);
@@ -423,7 +442,7 @@ static lbm_value ext_disp_load_axs15231(lbm_value *args, lbm_uint argn) {
 
 	disp_axs15231_init(gpio_sd0, gpio_sd1, gpio_sd2, gpio_sd3, gpio_clk, gpio_cs, gpio_reset, spi_mhz);
 
-	lbm_display_extensions_set_callbacks(
+	set_display_callbacks(
 			disp_axs15231_render_image,
 			disp_axs15231_clear,
 			disp_axs15231_reset);
@@ -457,7 +476,7 @@ static lbm_value ext_disp_load_gc9a01(lbm_value *args, lbm_uint argn) {
 
 	disp_gc9a01_init(gpio_sd0, gpio_clk, gpio_cs, gpio_reset, gpio_dc, spi_mhz);
 
-	lbm_display_extensions_set_callbacks(
+	set_display_callbacks(
 			disp_gc9a01_render_image,
 			disp_gc9a01_clear,
 			disp_gc9a01_reset);
@@ -491,7 +510,7 @@ static lbm_value ext_disp_load_jd9853(lbm_value *args, lbm_uint argn) {
 
 	disp_jd9853_init(gpio_sd0, gpio_clk, gpio_cs, gpio_reset, gpio_dc, spi_mhz);
 
-	lbm_display_extensions_set_callbacks(
+	set_display_callbacks(
 			disp_jd9853_render_image,
 			disp_jd9853_clear,
 			disp_jd9853_reset);
@@ -518,7 +537,7 @@ static lbm_value ext_disp_load_jd9165(lbm_value *args, lbm_uint argn) {
 
 	disp_jd9165_init(pin_rst, lane_mbps);
 
-	lbm_display_extensions_set_callbacks(
+	set_display_callbacks(
 			disp_jd9165_render_image,
 			disp_jd9165_clear,
 			disp_jd9165_reset);
@@ -548,7 +567,7 @@ static lbm_value ext_disp_load_st7701(lbm_value *args, lbm_uint argn) {
 		return ENC_SYM_EERROR;
 	}
 
-	lbm_display_extensions_set_callbacks(
+	set_display_callbacks(
 			disp_st7701_render_image,
 			disp_st7701_clear,
 			disp_st7701_reset);
@@ -652,7 +671,7 @@ static lbm_value ext_disp_load_st7701_rgb(lbm_value *args, lbm_uint argn) {
 		return ENC_SYM_EERROR;
 	}
 
-	lbm_display_extensions_set_callbacks(
+	set_display_callbacks(
 			disp_st7701_rgb_render_image,
 			disp_st7701_rgb_clear,
 			disp_st7701_rgb_reset);

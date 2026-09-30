@@ -220,6 +220,7 @@ static bool engine_open(void) {
 
 	lua_vesc_ext_register(m_engine);
 	lua_vesc_io_register(m_engine);
+	lua_vesc_disp_register(m_engine);
 	script_lua_install_events(m_engine);
 	return true;
 }

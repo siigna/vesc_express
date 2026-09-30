@@ -12,6 +12,8 @@
 
 #include "../script_lua.h"
 #include "../script_pack.h"
+#include "../../display/disp_backend.h"
+#include "../lua_vesc_ext.h"
 
 #include <stdio.h>
 #include <string.h>
@@ -35,6 +37,36 @@ static bool t_should_stop(void) {
 		return false;
 	}
 	return ++ticks > stop_after_ticks;
+}
+
+/*
+ * A fake display driver. Registering this through the same neutral registry a
+ * real panel uses is what lets the binding layer be tested end to end --
+ * position, palette and colour all the way to the driver call -- with no
+ * hardware in the loop.
+ */
+static int fake_render_calls = 0;
+static int fake_clear_calls = 0;
+static uint16_t fake_x, fake_y;
+static uint32_t fake_c0, fake_c1;
+static uint32_t fake_clear_color;
+
+static bool fake_render(image_buffer_t *img, uint16_t x, uint16_t y,
+		color_t *colors) {
+	(void)img;
+	fake_render_calls++;
+	fake_x = x;
+	fake_y = y;
+	if (colors) {
+		fake_c0 = (uint32_t)colors[0].color1;
+		fake_c1 = (uint32_t)colors[1].color1;
+	}
+	return true;
+}
+
+static void fake_clear(uint32_t color) {
+	fake_clear_calls++;
+	fake_clear_color = color;
 }
 
 static void ok(const char *what, bool cond) {
@@ -414,6 +446,138 @@ int main(int argc, char **argv) {
 		script_event_t ev = {.type = 200, .len = 1};
 		ok("unknown event type ignored", script_lua_dispatch(s, &ev, NULL, 0));
 		ok("wants() false for unknown type", !script_lua_wants(s, 200));
+		script_lua_close(s);
+	}
+
+	// Drawing. The pixels are checkable without a panel, which is the whole
+	// reason the buffer and the primitives are separable from the driver: a
+	// dash layout can be verified here rather than by photographing a screen.
+	{
+		script_lua_t *s = open_engine(0, NULL);
+		lua_vesc_disp_register(s);
+
+		ok("buffer allocates", run(s,
+				"b = vesc.img_buffer('indexed4', 16, 8)", NULL, 0));
+		ok("dims report back", run(s,
+				"local w, h = b:dims() assert(w == 16 and h == 8)", NULL, 0));
+
+		// Indexed formats pack several pixels per byte, so a set/get round
+		// trip is really a test of the packing arithmetic.
+		ok("setpix and getpix round trip", run(s,
+				"b:setpix(3, 2, 2) assert(b:getpix(3, 2) == 2)", NULL, 0));
+		ok("neighbours untouched by a packed write", run(s,
+				"assert(b:getpix(2, 2) == 0 and b:getpix(4, 2) == 0)", NULL, 0));
+		ok("all four indices survive", run(s,
+				"for i = 0, 3 do b:setpix(i, 0, i) end "
+				"for i = 0, 3 do assert(b:getpix(i, 0) == i) end", NULL, 0));
+
+		ok("clear fills", run(s,
+				"b:clear(1) assert(b:getpix(0, 0) == 1 and b:getpix(15, 7) == 1)",
+				NULL, 0));
+
+		// Off-buffer reads report nil rather than a wrapped pixel from the
+		// next row, which is what an unclamped index would give.
+		ok("out of range read is nil", run(s,
+				"assert(b:getpix(16, 0) == nil and b:getpix(0, 8) == nil "
+				"and b:getpix(-1, 0) == nil)", NULL, 0));
+		// Off-buffer writes are clipped, not errors: a dash positions
+		// elements by arithmetic and running off the edge is routine.
+		ok("out of range write is clipped, not fatal", run(s,
+				"b:setpix(100, 100, 3) b:setpix(-5, -5, 3)", NULL, 0));
+
+		ok("filled rectangle covers its area", run(s,
+				"b:clear(0) b:rectangle(2, 2, 4, 3, 2, true) "
+				"assert(b:getpix(2, 2) == 2 and b:getpix(5, 4) == 2) "
+				"assert(b:getpix(1, 2) == 0 and b:getpix(6, 4) == 0)", NULL, 0));
+		ok("outlined rectangle is hollow", run(s,
+				"b:clear(0) b:rectangle(2, 2, 6, 5, 3, false) "
+				"assert(b:getpix(2, 2) == 3) assert(b:getpix(4, 4) == 0)", NULL, 0));
+		ok("line draws between its endpoints", run(s,
+				"b:clear(0) b:line(0, 0, 15, 0, 1) "
+				"assert(b:getpix(0, 0) == 1 and b:getpix(15, 0) == 1)", NULL, 0));
+		ok("circle and arc do not error", run(s,
+				"b:clear(0) b:circle(8, 4, 3, 1) b:circle(8, 4, 2, 2, true) "
+				"b:arc(8, 4, 3, 0, 90, 1)", NULL, 0));
+		ok("triangle fills", run(s,
+				"b:clear(0) b:triangle(0, 0, 8, 0, 0, 6, 2) "
+				"assert(b:getpix(1, 1) == 2)", NULL, 0));
+
+		ok("blit copies between buffers", run(s,
+				"local src = vesc.img_buffer('indexed4', 4, 4) "
+				"src:clear(3) local dst = vesc.img_buffer('indexed4', 16, 8) "
+				"dst:clear(0) dst:blit(src, 2, 2) "
+				"assert(dst:getpix(2, 2) == 3 and dst:getpix(5, 5) == 3) "
+				"assert(dst:getpix(1, 1) == 0)", NULL, 0));
+
+		// Every format has to allocate and round trip, since the size
+		// arithmetic differs per format.
+		ok("all formats allocate", run(s,
+				"for _, f in ipairs{'indexed2','indexed4','indexed16',"
+				"'rgb332','rgb565','rgb888'} do "
+				"  local x = vesc.img_buffer(f, 8, 8) "
+				"  local w, h = x:dims() assert(w == 8 and h == 8) "
+				"end", NULL, 0));
+		ok("unknown format refused",
+				!run(s, "vesc.img_buffer('rgb111', 8, 8)", NULL, 0));
+		ok("zero size refused",
+				!run(s, "vesc.img_buffer('indexed4', 0, 8)", NULL, 0));
+		ok("absurd size refused",
+				!run(s, "vesc.img_buffer('rgb888', 5000, 5000)", NULL, 0));
+
+		// A buffer is userdata, so passing the wrong thing is caught by the
+		// metatable check rather than reinterpreting a pointer.
+		ok("non-buffer argument refused",
+				!run(s, "vesc.disp_render('not a buffer', 0, 0)", NULL, 0));
+		ok("drawing on a non-buffer refused",
+				!run(s, "local t = {} getmetatable(b).clear(t)", NULL, 0));
+
+		// With no driver registered, rendering reports false rather than
+		// raising: a script on a board whose panel failed should keep working.
+		ok("render without a driver returns false", run(s,
+				"assert(vesc.disp_render(b, 0, 0, {0, 1, 2, 3}) == false)",
+				NULL, 0));
+		ok("disp_loaded is false", run(s,
+				"assert(vesc.disp_loaded() == false)", NULL, 0));
+		ok("clear without a driver is harmless", run(s, "vesc.disp_clear(0)", NULL, 0));
+
+		script_lua_close(s);
+	}
+
+	// The backend registry, and a palette arriving intact at a driver.
+	{
+		script_lua_t *s = open_engine(0, NULL);
+		lua_vesc_disp_register(s);
+
+		disp_backend_set(fake_render, fake_clear, NULL);
+		ok("disp_loaded true once registered", run(s,
+				"assert(vesc.disp_loaded() == true)", NULL, 0));
+
+		fake_render_calls = 0;
+		ok("render reaches the driver", run(s,
+				"local q = vesc.img_buffer('indexed4', 4, 4) "
+				"assert(vesc.disp_render(q, 7, 9, {0xFF0000, 0x00FF00}) == true)",
+				NULL, 0));
+		ok("driver was called once", fake_render_calls == 1);
+		ok("position passed through", fake_x == 7 && fake_y == 9);
+		ok("palette entry 0 passed through", fake_c0 == 0xFF0000);
+		ok("palette entry 1 passed through", fake_c1 == 0x00FF00);
+
+		fake_clear_calls = 0;
+		ok("clear reaches the driver", run(s, "vesc.disp_clear(0x123456)", NULL, 0));
+		ok("clear colour passed through",
+				fake_clear_calls == 1 && fake_clear_color == 0x123456);
+
+		// A palette longer than the driver can take is refused rather than
+		// overflowing the fixed array behind it.
+		ok("oversized palette refused", !run(s,
+				"local q = vesc.img_buffer('indexed16', 4, 4) "
+				"local p = {} for i = 1, 40 do p[i] = i end "
+				"vesc.disp_render(q, 0, 0, p)", NULL, 0));
+		ok("non-numeric palette entry refused", !run(s,
+				"local q = vesc.img_buffer('indexed4', 4, 4) "
+				"vesc.disp_render(q, 0, 0, {'red'})", NULL, 0));
+
+		disp_backend_set(NULL, NULL, NULL);
 		script_lua_close(s);
 	}
 

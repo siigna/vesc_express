@@ -12,7 +12,9 @@ LUA_DIR ?= ../../lua
 # Same configuration the firmware builds Lua with, so the engine under test is
 # the engine that ships. LUA_32BITS is set in the vendored luaconf.h rather
 # than here, because Lua defines it itself and a command-line define collides.
-LUA_CFLAGS = -I$(LUA_DIR) -DLUA_USE_APICHECK
+GFX_DIR ?= ../../lispBM/utils
+DISP_DIR ?= ../../display
+LUA_CFLAGS = -I$(LUA_DIR) -I$(GFX_DIR) -I$(DISP_DIR) -DLUA_USE_APICHECK
 LUA_SRCS = $(wildcard $(LUA_DIR)/*.c)
 
 .PHONY: all run clean fuzz
@@ -31,9 +33,15 @@ lua_objs.a: $(LUA_SRCS)
 	done
 	@$(AR) rcs $@ .luaobj/*.o
 
-test_script_lua: test_script_lua.c ../script_lua.c ../script_pack.c lua_objs.a
+# tinygfx and tjpgd come straight from the tree: the drawing under test is the
+# drawing that ships, and it needs nothing from either interpreter.
+test_script_lua: test_script_lua.c ../script_lua.c ../script_pack.c \
+		../lua_vesc_disp.c $(DISP_DIR)/disp_backend.c \
+		$(GFX_DIR)/tinygfx.c $(GFX_DIR)/tjpgd.c lua_objs.a
 	$(CC) $(CFLAGS) -Wno-conversion -Wno-sign-conversion $(LUA_CFLAGS) $(SAN) \
-		-o $@ test_script_lua.c ../script_lua.c ../script_pack.c lua_objs.a -lm
+		-o $@ test_script_lua.c ../script_lua.c ../script_pack.c \
+		../lua_vesc_disp.c $(DISP_DIR)/disp_backend.c \
+		$(GFX_DIR)/tinygfx.c $(GFX_DIR)/tjpgd.c lua_objs.a -lm
 
 # The fixture is packed by the real tool, so the Python writer and the C
 # reader are checked against each other on every run.

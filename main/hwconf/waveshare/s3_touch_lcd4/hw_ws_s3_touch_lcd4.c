@@ -172,6 +172,74 @@ static void ch32_display_power_on(void) {
 	i2c_driver_delete(CH32_I2C_PORT);
 }
 
+/*
+ * Panel register initialisation, transcribed mechanically from Waveshare's
+ * Arduino board support: st7701_type1_init_operations in
+ * GFX_Library_for_Arduino/src/display/Arduino_RGB_Display.h of
+ * waveshareteam/ESP32-S3-Touch-LCD-4.
+ *
+ * There are two vendor references for this board and they do not agree. The
+ * other is the ESP-IDF BSP (waveshare/esp32_s3_touch_lcd_4 on
+ * components.espressif.com), which drives the panel through the same esp_lcd
+ * component this firmware uses, so on paper it ought to be the one to follow.
+ * It is not: with the BSP table -- 0x3A of 0x66, 0xB2 of 0x87, sleep-out
+ * first -- this panel produced no recognisable colour at all, while this table
+ * produced correct red, green, blue, white and black. Measured on the board,
+ * twice, in both directions. Where a reference and the hardware disagree the
+ * hardware wins.
+ *
+ * The component's own default table is for a different panel again and gives
+ * wrong colours with no error reported anywhere, because every call in the
+ * stack succeeds. The register that matters most for that is 0xCD, which maps
+ * the 16 parallel data lines onto the controller's colour bits and which the
+ * component default never writes.
+ *
+ * Still unresolved, and the next thing to work on: a fill does not fully
+ * overwrite what was on screen. Solid colours are right, but each new frame
+ * blends with the previous one, so every pixel appears to latch only part of
+ * its bits. 0xCD and 0x3A are the registers that select how many bus cycles a
+ * pixel takes; 0xCD of 0x00 and 0x3A of 0x50 and 0x66 were all tried live and
+ * none fixed it.
+ */
+static const st7701_lcd_init_cmd_t panel_init_cmds[] = {
+	{0xFF, (uint8_t []){0x77, 0x01, 0x00, 0x00, 0x10}, 5, 0},
+	{0xC0, (uint8_t []){0x3B, 0x00}, 2, 0},
+	{0xC1, (uint8_t []){0x0D, 0x02}, 2, 0},
+	{0xC2, (uint8_t []){0x31, 0x05}, 2, 0},
+	{0xCD, (uint8_t []){0x08}, 1, 0},
+	{0xB0, (uint8_t []){0x00, 0x11, 0x18, 0x0E, 0x11, 0x06, 0x07, 0x08, 0x07, 0x22, 0x04, 0x12, 0x0F, 0xAA, 0x31, 0x18}, 16, 0},
+	{0xB1, (uint8_t []){0x00, 0x11, 0x19, 0x0E, 0x12, 0x07, 0x08, 0x08, 0x08, 0x22, 0x04, 0x11, 0x11, 0xA9, 0x32, 0x18}, 16, 0},
+	{0xFF, (uint8_t []){0x77, 0x01, 0x00, 0x00, 0x11}, 5, 0},
+	{0xB0, (uint8_t []){0x60}, 1, 0},
+	{0xB1, (uint8_t []){0x32}, 1, 0},
+	{0xB2, (uint8_t []){0x07}, 1, 0},
+	{0xB3, (uint8_t []){0x80}, 1, 0},
+	{0xB5, (uint8_t []){0x49}, 1, 0},
+	{0xB7, (uint8_t []){0x85}, 1, 0},
+	{0xB8, (uint8_t []){0x21}, 1, 0},
+	{0xC1, (uint8_t []){0x78}, 1, 0},
+	{0xC2, (uint8_t []){0x78}, 1, 0},
+	{0xE0, (uint8_t []){0x00, 0x1B, 0x02}, 3, 0},
+	{0xE1, (uint8_t []){0x08, 0xA0, 0x00, 0x00, 0x07, 0xA0, 0x00, 0x00, 0x00, 0x44, 0x44}, 11, 0},
+	{0xE2, (uint8_t []){0x11, 0x11, 0x44, 0x44, 0xED, 0xA0, 0x00, 0x00, 0xEC, 0xA0, 0x00, 0x00}, 12, 0},
+	{0xE3, (uint8_t []){0x00, 0x00, 0x11, 0x11}, 4, 0},
+	{0xE4, (uint8_t []){0x44, 0x44}, 2, 0},
+	{0xE5, (uint8_t []){0x0A, 0xE9, 0xD8, 0xA0, 0x0C, 0xEB, 0xD8, 0xA0, 0x0E, 0xED, 0xD8, 0xA0, 0x10, 0xEF, 0xD8, 0xA0}, 16, 0},
+	{0xE6, (uint8_t []){0x00, 0x00, 0x11, 0x11}, 4, 0},
+	{0xE7, (uint8_t []){0x44, 0x44}, 2, 0},
+	{0xE8, (uint8_t []){0x09, 0xE8, 0xD8, 0xA0, 0x0B, 0xEA, 0xD8, 0xA0, 0x0D, 0xEC, 0xD8, 0xA0, 0x0F, 0xEE, 0xD8, 0xA0}, 16, 0},
+	{0xEB, (uint8_t []){0x02, 0x00, 0xE4, 0xE4, 0x88, 0x00, 0x40}, 7, 0},
+	{0xEC, (uint8_t []){0x3C, 0x00}, 2, 0},
+	{0xED, (uint8_t []){0xAB, 0x89, 0x76, 0x54, 0x02, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0x20, 0x45, 0x67, 0x98, 0xBA}, 16, 0},
+	{0xFF, (uint8_t []){0x77, 0x01, 0x00, 0x00, 0x13}, 5, 0},
+	{0xE5, (uint8_t []){0xE4}, 1, 0},
+	{0xFF, (uint8_t []){0x77, 0x01, 0x00, 0x00, 0x00}, 5, 0},
+	{0x21, NULL, 0, 0},
+	{0x3A, (uint8_t []){0x60}, 1, 0},
+	{0x11, NULL, 0, 120},
+	{0x29, NULL, 0, 0},
+};
+
 // The panel needs 20 GPIOs for the bus plus 3 for register setup, so the
 // pin map lives here rather than in the package. A dash package only calls
 // (disp-init), the way the Dash16 package does.
@@ -198,6 +266,11 @@ static lbm_value ext_disp_init(lbm_value *args, lbm_uint argn) {
 		.vsync_pulse_width  = DISP_VSYNC_PULSE,
 		.vsync_back_porch   = DISP_VSYNC_BACK_PORCH,
 		.vsync_front_porch  = DISP_VSYNC_FRONT_PORCH,
+		// Ten lines. Safe only because the sdkconfig enables XIP from PSRAM;
+		// see the comment at fb_in_psram in disp_st7701_rgb.c.
+		.bounce_lines   = 10,
+		.init_cmds      = panel_init_cmds,
+		.init_cmds_size = sizeof(panel_init_cmds) / sizeof(panel_init_cmds[0]),
 	};
 	for (int i = 0; i < 16; i++) {
 		cfg.pin_data[i] = data_pins[i];
@@ -214,6 +287,85 @@ static lbm_value ext_disp_init(lbm_value *args, lbm_uint argn) {
 			disp_st7701_rgb_reset);
 
 	return ENC_SYM_TRUE;
+}
+
+/*
+ * (disp-bl n) -- backlight, 0..255 as the CH32 PWM register takes it.
+ *
+ * Which end is bright is not obvious and has already been got wrong here.
+ * EXIO_PWM does not gate the LED driver; it feeds the AP3032's feedback node,
+ * so the value is not a brightness but an injected error, and the mapping is
+ * inverted and not necessarily linear. This exists so the answer can be
+ * measured on a board rather than argued from the schematic.
+ */
+static lbm_value ext_disp_bl(lbm_value *args, lbm_uint argn) {
+	if (argn != 1 || !lbm_is_number(args[0])) {
+		lbm_set_error_reason((char*)lbm_error_str_no_number);
+		return ENC_SYM_TERROR;
+	}
+
+	uint32_t v = lbm_dec_as_u32(args[0]);
+	if (v > 255) {
+		v = 255;
+	}
+
+	ch32_recover_bus();
+
+	const i2c_config_t conf = {
+		.mode = I2C_MODE_MASTER,
+		.sda_io_num = TOUCH_SDA,
+		.scl_io_num = TOUCH_SCL,
+		.sda_pullup_en = GPIO_PULLUP_ENABLE,
+		.scl_pullup_en = GPIO_PULLUP_ENABLE,
+		.master.clk_speed = CH32_I2C_HZ,
+	};
+
+	if (i2c_param_config(CH32_I2C_PORT, &conf) != ESP_OK ||
+			i2c_driver_install(CH32_I2C_PORT, conf.mode, 0, 0, 0) != ESP_OK) {
+		return ENC_SYM_NIL;
+	}
+
+	esp_err_t res = ch32_write(CH32_REG_PWM, (uint8_t)v);
+	i2c_driver_delete(CH32_I2C_PORT);
+
+	return res == ESP_OK ? ENC_SYM_TRUE : ENC_SYM_NIL;
+}
+
+/*
+ * (disp-cmd cmd) or (disp-cmd cmd '(d0 d1 ...))
+ *
+ * Raw ST7701 register write over the 3-wire SPI link, for bring-up. Handy
+ * ones: 0x20 inversion off, 0x21 inversion on, 0x3A pixel format, and on
+ * command page 0x11 (selected by 0xFF 77 01 00 00 11) 0xB1 is VCOM.
+ */
+static lbm_value ext_disp_cmd(lbm_value *args, lbm_uint argn) {
+	if (argn < 1 || argn > 2 || !lbm_is_number(args[0])) {
+		lbm_set_error_reason((char*)lbm_error_str_no_number);
+		return ENC_SYM_TERROR;
+	}
+
+	uint8_t buf[32];
+	size_t len = 0;
+
+	if (argn == 2) {
+		lbm_value cur = args[1];
+		while (lbm_is_cons(cur)) {
+			if (len >= sizeof(buf)) {
+				lbm_set_error_reason("Too many data bytes");
+				return ENC_SYM_EERROR;
+			}
+			lbm_value car = lbm_car(cur);
+			if (!lbm_is_number(car)) {
+				lbm_set_error_reason((char*)lbm_error_str_no_number);
+				return ENC_SYM_TERROR;
+			}
+			buf[len++] = (uint8_t)lbm_dec_as_u32(car);
+			cur = lbm_cdr(cur);
+		}
+	}
+
+	uint8_t cmd = (uint8_t)lbm_dec_as_u32(args[0]);
+	return disp_st7701_rgb_cmd(cmd, len ? buf : NULL, len) ? ENC_SYM_TRUE : ENC_SYM_NIL;
 }
 
 // The GT911 loader is generic, so rather than wrap it the board just reports
@@ -245,6 +397,8 @@ static void load_extensions(bool main_found) {
 	}
 
 	lbm_add_extension("disp-init", ext_disp_init);
+	lbm_add_extension("disp-cmd", ext_disp_cmd);
+	lbm_add_extension("disp-bl", ext_disp_bl);
 	lbm_add_extension("touch-pins", ext_touch_pins);
 }
 

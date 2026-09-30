@@ -20,8 +20,10 @@
 
 #include <stdint.h>
 #include <stdbool.h>
+#include <stddef.h>
 #include "soc/soc_caps.h"
 #include "lispif_disp_extensions.h"
+#include "esp_lcd_st7701.h"
 
 #if SOC_LCD_RGB_SUPPORTED
 
@@ -60,11 +62,50 @@ typedef struct {
 	int vsync_pulse_width;
 	int vsync_back_porch;
 	int vsync_front_porch;
+
+	/*
+	 * Panel register initialisation, NULL to take the ST7701 component's
+	 * built-in sequence.
+	 *
+	 * Set this from the board too, and for the same reason as the blanking
+	 * above: the component's default table is one manufacturer's panel, not
+	 * every panel with an ST7701 on it. Gamma and power differ, and so do
+	 * two registers that decide what the bus even means -- 0xCD, which maps
+	 * the parallel data lines onto colour bits, and 0x3A, the pixel format.
+	 * Get those wrong and the panel scans out perfectly while showing the
+	 * wrong colours, with nothing to report.
+	 */
+	const st7701_lcd_init_cmd_t *init_cmds;
+	uint16_t init_cmds_size;
+
+	/*
+	 * Lines of bounce buffer in internal RAM, 0 for none.
+	 *
+	 * A bounce buffer lets the scanout run ahead of PSRAM latency and so
+	 * allows a higher pixel clock, but it is refilled from an interrupt and
+	 * the IDF documents that DMA and the LCD can fall out of step in that
+	 * mode, leaving the image *permanently* shifted. With a single PSRAM
+	 * framebuffer there is no refill and nothing to desynchronise. 480x480
+	 * at 16 MHz is 32 MB/s, which octal PSRAM serves without help, so prefer
+	 * 0 unless a panel actually needs the headroom.
+	 */
+	int bounce_lines;
 } disp_st7701_rgb_cfg_t;
 
 bool disp_st7701_rgb_init(const disp_st7701_rgb_cfg_t *cfg);
 void disp_st7701_rgb_deinit(void);
 void disp_st7701_rgb_set_rotation(int rotation);
+/*
+ * Send a raw command to the panel over the 3-wire SPI register link.
+ *
+ * This exists for bring-up. A parallel RGB panel reports nothing about
+ * itself, so when the picture is geometrically right but tonally wrong the
+ * only way to tell inversion from gamma from VCOM is to change one register
+ * at a time and look. Reflashing to try each value is minutes per attempt;
+ * this makes it seconds.
+ */
+bool disp_st7701_rgb_cmd(uint8_t cmd, const uint8_t *data, size_t len);
+
 bool disp_st7701_rgb_render_image(image_buffer_t *img, uint16_t x, uint16_t y, color_t *colors);
 void disp_st7701_rgb_clear(uint32_t color);
 void disp_st7701_rgb_reset(void);

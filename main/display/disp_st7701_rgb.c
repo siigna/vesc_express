@@ -195,13 +195,59 @@ bool disp_st7701_rgb_render_image(image_buffer_t *img, uint16_t x, uint16_t y, c
 		return false;
 	}
 
-	// Already in the panel's format and orientation: hand it over directly
-	if (m_rotation == 0 && img->fmt == rgb565) {
-		return draw_rgb565(x, y, iw, ih, img->data);
-	}
-
 	if (!m_pix_buf) {
 		return false;
+	}
+
+	/*
+	 * Bring-up logging for the first few renders after a boot. A parallel RGB
+	 * panel tells you nothing, so when a picture comes out wrong the only way
+	 * to separate "the driver produced the wrong pixels" from "the panel
+	 * showed the right pixels wrongly" is to print what was produced. Costs
+	 * nothing in a shipping build, where the log level is 0.
+	 */
+	static int log_renders = 4;
+	if (log_renders > 0) {
+		log_renders--;
+		ESP_LOGI(TAG, "render fmt=%d %dx%d at %d,%d rot=%d img=%p (align %u) buf=%p (align %u)",
+				(int)img->fmt, iw, ih, (int)x, (int)y, m_rotation,
+				img->data, (unsigned)((uintptr_t)img->data & 63U),
+				m_pix_buf, (unsigned)((uintptr_t)m_pix_buf & 63U));
+		if (colors) {
+			for (int i = 0; i < 4; i++) {
+				uint32_t rgb = COLOR_TO_RGB888(colors[i], 0, 0);
+				ESP_LOGI(TAG, "  palette[%d] rgb888=%06lx rgb565=%04x",
+						i, (unsigned long)rgb, rgb888_to_rgb565(rgb));
+			}
+		}
+	}
+
+	/*
+	 * Already in the panel's format and orientation. It still goes through
+	 * the scratch buffer rather than straight from the image, because the
+	 * image belongs to LispBM: its address has whatever alignment the
+	 * allocator happened to give it, and the panel wants a 64-byte aligned
+	 * source. Copying a band at a time is cheap next to getting this wrong.
+	 */
+	if (m_rotation == 0 && img->fmt == rgb565) {
+		int band = (int)(m_pix_buf_bytes / (2U * (uint32_t)iw));
+		if (band > ih) {
+			band = ih;
+		}
+		if (band < 1) {
+			return false;
+		}
+
+		for (int row = 0; row < ih; row += band) {
+			int rows = (row + band <= ih) ? band : (ih - row);
+			memcpy(m_pix_buf, img->data + (size_t)row * (size_t)iw * 2U,
+					(size_t)rows * (size_t)iw * 2U);
+			if (!draw_rgb565(x, y + row, iw, rows, m_pix_buf)) {
+				return false;
+			}
+		}
+
+		return true;
 	}
 
 	uint16_t *buf = (uint16_t *)m_pix_buf;
@@ -233,6 +279,10 @@ bool disp_st7701_rgb_render_image(image_buffer_t *img, uint16_t x, uint16_t y, c
 			if (!convert_to_rgb565(img, colors, buf,
 					(uint32_t)row * (uint32_t)iw, (uint32_t)rows * (uint32_t)iw)) {
 				return false;
+			}
+			if (row == 0 && log_renders >= 0 && ih > 1) {
+				ESP_LOGI(TAG, "  converted row0: [0]=%04x [iw/2]=%04x [iw-1]=%04x",
+						buf[0], buf[iw / 2], buf[iw - 1]);
 			}
 			if (!draw_rgb565(x, y + row, iw, rows, buf)) {
 				return false;
@@ -338,13 +388,8 @@ bool disp_st7701_rgb_init(const disp_st7701_rgb_cfg_t *cfg) {
 		.bits_per_pixel = 16,
 		.psram_trans_align = 64,
 		.num_fbs = 1,
-		// Ten lines of bounce buffer in internal RAM. This decouples the
-		// scanout from PSRAM latency and is what allows a higher
-		// pixel clock, at the cost of a per-line refill interrupt. Whether this
-		// panel needs it has not been measured -- 480x480 at 16 MHz is only
-		// 32 MB/s, well inside octal PSRAM -- so a single PSRAM framebuffer with
-		// no bounce buffer may work here and would remove that interrupt.
-		.bounce_buffer_size_px = cfg->width * 10,
+		.bounce_buffer_size_px = cfg->bounce_lines > 0 ?
+				(size_t)cfg->width * (size_t)cfg->bounce_lines : 0,
 		.de_gpio_num    = cfg->pin_de,
 		.pclk_gpio_num  = cfg->pin_pclk,
 		.vsync_gpio_num = cfg->pin_vsync,
@@ -362,6 +407,11 @@ bool disp_st7701_rgb_init(const disp_st7701_rgb_cfg_t *cfg) {
 		 * "Cache error / MMU entry fault" boot loop, because the dash package
 		 * writes roughly seventy-five eeprom entries when it restores defaults
 		 * and every one of them is a flash operation while this panel refreshes.
+		 *
+		 * A board that drives its panel without a bounce buffer has no
+		 * refill interrupt, but the framebuffer still lives in PSRAM and is
+		 * still read continuously, so the option below is what makes flash
+		 * writes safe either way.
 		 *
 		 * The fix is not in this file: the board's sdkconfig enables
 		 * CONFIG_SPIRAM_XIP_FROM_PSRAM, which keeps the cache active across a
@@ -405,6 +455,8 @@ bool disp_st7701_rgb_init(const disp_st7701_rgb_cfg_t *cfg) {
 	rgb_cfg.timings = timing;
 
 	st7701_vendor_config_t vendor_cfg = {
+		.init_cmds = cfg->init_cmds,
+		.init_cmds_size = cfg->init_cmds_size,
 		.rgb_config = &rgb_cfg,
 		.flags = {
 			.use_mipi_interface = 0,
@@ -436,9 +488,16 @@ bool disp_st7701_rgb_init(const disp_st7701_rgb_cfg_t *cfg) {
 	// Scratch space for format conversion and rotation. Two copies of a
 	// chunk are needed when rotating.
 	m_pix_buf_bytes = (size_t)cfg->width * CHUNK_LINES * 2U * 2U;
-	m_pix_buf = heap_caps_malloc(m_pix_buf_bytes, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+	/*
+	 * 64-byte aligned, because the panel is configured with
+	 * psram_trans_align = 64 and this buffer is a source for its transfers.
+	 * heap_caps_malloc gives no such guarantee.
+	 */
+	m_pix_buf_bytes = (m_pix_buf_bytes + 63U) & ~(size_t)63U;
+	m_pix_buf = heap_caps_aligned_alloc(64, m_pix_buf_bytes,
+			MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
 	if (!m_pix_buf) {
-		m_pix_buf = heap_caps_malloc(m_pix_buf_bytes, MALLOC_CAP_8BIT);
+		m_pix_buf = heap_caps_aligned_alloc(64, m_pix_buf_bytes, MALLOC_CAP_8BIT);
 	}
 	if (!m_pix_buf) {
 		ESP_LOGE(TAG, "pixel buffer alloc failed (%u bytes)", (unsigned)m_pix_buf_bytes);
@@ -450,6 +509,13 @@ bool disp_st7701_rgb_init(const disp_st7701_rgb_cfg_t *cfg) {
 	lbm_add_extension("ext-disp-orientation", ext_disp_orientation);
 
 	return true;
+}
+
+bool disp_st7701_rgb_cmd(uint8_t cmd, const uint8_t *data, size_t len) {
+	if (!m_io) {
+		return false;
+	}
+	return esp_lcd_panel_io_tx_param(m_io, cmd, data, len) == ESP_OK;
 }
 
 void disp_st7701_rgb_deinit(void) {

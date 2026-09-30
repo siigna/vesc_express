@@ -58,6 +58,12 @@
 // Display: parallel RGB bus
 #define DISP_WIDTH              480
 #define DISP_HEIGHT             480
+/*
+ * 16 MHz, the ST7701 component's figure, which Waveshare's ESP-IDF BSP also
+ * keeps. Their Arduino driver picks 12 MHz for octal PSRAM instead; 12 MHz was
+ * tried here and changed nothing that could be seen, so this stays at the
+ * value both the component and the BSP use.
+ */
 #define DISP_PCLK_HZ            16000000
 
 /* Blanking, from Waveshare's own Arduino panel configuration for this board.
@@ -68,6 +74,16 @@
  * in the driver still reports success -- a draw on an RGB panel only copies
  * into a framebuffer, so nothing in the stack can tell whether the glass is
  * displaying it.
+ */
+/*
+ * Blanking from Waveshare's Arduino example for this board, which passes
+ * these explicitly rather than taking the ST7701 component's generic macro.
+ *
+ * The macro's own values are 10/10/20 and 10/10/10, and their ESP-IDF BSP
+ * uses the macro unchanged. Both were tried on the board. These are the ones
+ * that were in place when the panel produced correct colour, so these stay,
+ * and the disagreement between the two vendor references is noted rather than
+ * resolved.
  */
 #define DISP_HSYNC_PULSE        8
 #define DISP_HSYNC_BACK_PORCH   50

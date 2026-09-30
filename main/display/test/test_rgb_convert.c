@@ -173,7 +173,7 @@ static void test_convert(void) {
 		uint8_t data[1] = { 0xA0 };
 		image_buffer_t img = { indexed2, 8, 1, data, data };
 		uint16_t out[8];
-		bool ok = convert_to_rgb565(&img, pal, out);
+		bool ok = convert_to_rgb565(&img, pal, out, 0, (uint32_t)img.width * (uint32_t)img.height);
 		expect_u32("indexed2 returned ok", ok, true);
 		const uint16_t want[8] = { 0xF800, 0, 0xF800, 0, 0, 0, 0, 0 };
 		for (int i = 0; i < 8; i++) {
@@ -189,7 +189,7 @@ static void test_convert(void) {
 		uint8_t data[1] = { 0x1B };
 		image_buffer_t img = { indexed4, 4, 1, data, data };
 		uint16_t out[4];
-		bool ok = convert_to_rgb565(&img, pal, out);
+		bool ok = convert_to_rgb565(&img, pal, out, 0, (uint32_t)img.width * (uint32_t)img.height);
 		expect_u32("indexed4 returned ok", ok, true);
 		expect_u32("indexed4 [0] pal0", out[0], 0x0000);
 		expect_u32("indexed4 [1] pal1", out[1], 0xF800);
@@ -202,7 +202,7 @@ static void test_convert(void) {
 		uint8_t data[1] = { 0x31 };
 		image_buffer_t img = { indexed16, 2, 1, data, data };
 		uint16_t out[2];
-		bool ok = convert_to_rgb565(&img, pal, out);
+		bool ok = convert_to_rgb565(&img, pal, out, 0, (uint32_t)img.width * (uint32_t)img.height);
 		expect_u32("indexed16 returned ok", ok, true);
 		expect_u32("indexed16 [0] pal3", out[0], 0xFFFF);
 		expect_u32("indexed16 [1] pal1", out[1], 0xF800);
@@ -214,7 +214,7 @@ static void test_convert(void) {
 		image_buffer_t img = { indexed4, 4, 1, data, data };
 		uint16_t out[4];
 		expect_u32("indexed4 with no palette refused",
-				convert_to_rgb565(&img, NULL, out), false);
+				convert_to_rgb565(&img, NULL, out, 0, (uint32_t)img.width * (uint32_t)img.height), false);
 	}
 
 	/* rgb565 passes through byte for byte */
@@ -222,7 +222,7 @@ static void test_convert(void) {
 		uint8_t data[4] = { 0xF8, 0x00, 0x00, 0x1F };
 		image_buffer_t img = { rgb565, 2, 1, data, data };
 		uint16_t out[2];
-		bool ok = convert_to_rgb565(&img, pal, out);
+		bool ok = convert_to_rgb565(&img, pal, out, 0, (uint32_t)img.width * (uint32_t)img.height);
 		expect_u32("rgb565 returned ok", ok, true);
 		expect_u32("rgb565 [0]", out[0], 0xF800);
 		expect_u32("rgb565 [1]", out[1], 0x001F);
@@ -233,7 +233,7 @@ static void test_convert(void) {
 		uint8_t data[6] = { 0xFF, 0x00, 0x00, 0x00, 0x00, 0xFF };
 		image_buffer_t img = { rgb888, 2, 1, data, data };
 		uint16_t out[2];
-		bool ok = convert_to_rgb565(&img, pal, out);
+		bool ok = convert_to_rgb565(&img, pal, out, 0, (uint32_t)img.width * (uint32_t)img.height);
 		expect_u32("rgb888 returned ok", ok, true);
 		expect_u32("rgb888 [0] red", out[0], 0xF800);
 		expect_u32("rgb888 [1] blue", out[1], 0x001F);
@@ -249,7 +249,7 @@ static void test_convert(void) {
 		uint8_t data[5] = { 0xE0, 0x1C, 0x03, 0xFF, 0x00 };
 		image_buffer_t img = { rgb332, 5, 1, data, data };
 		uint16_t out[5];
-		bool ok = convert_to_rgb565(&img, pal, out);
+		bool ok = convert_to_rgb565(&img, pal, out, 0, (uint32_t)img.width * (uint32_t)img.height);
 		expect_u32("rgb332 returned ok", ok, true);
 		expect_u32("rgb332 red",   out[0], 0xE000);
 		expect_u32("rgb332 green", out[1], 0x0700);
@@ -264,7 +264,7 @@ static void test_convert(void) {
 		image_buffer_t img = { format_not_supported, 4, 1, data, data };
 		uint16_t out[4];
 		expect_u32("unknown format refused",
-				convert_to_rgb565(&img, pal, out), false);
+				convert_to_rgb565(&img, pal, out, 0, (uint32_t)img.width * (uint32_t)img.height), false);
 	}
 }
 
@@ -272,6 +272,62 @@ int main(void) {
 	test_888_to_565();
 	test_rotate();
 	test_convert();
+
+	/* Banded conversion must equal one-shot conversion.
+	 *
+	 * The driver converts a large image a band of rows at a time, passing a
+	 * pixel offset and a count. That offset is where a packed format can go
+	 * wrong: indexed4 holds four pixels per byte and indexed2 eight, so a
+	 * band that does not start on a byte boundary shifts every pixel in it.
+	 * The rest of this file only ever converted whole images from offset
+	 * zero, which is exactly the case that cannot catch it.
+	 */
+	{
+		const int w = 16, h = 8;
+		uint8_t data[16 * 8];
+		for (size_t i = 0; i < sizeof(data); i++) {
+			data[i] = (uint8_t)(i * 37u);
+		}
+
+		const struct { color_format_t fmt; const char *name; } fmts[] = {
+			{ indexed2, "indexed2" },
+			{ indexed4, "indexed4" },
+			{ indexed16, "indexed16" },
+			{ rgb332, "rgb332" },
+		};
+
+		for (size_t f = 0; f < sizeof(fmts) / sizeof(fmts[0]); f++) {
+			image_buffer_t img = { fmts[f].fmt, w, h, data, data };
+			color_t pal[16];
+			for (int i = 0; i < 16; i++) {
+				pal[i] = solid((uint32_t)(i * 0x111111u));
+			}
+
+			uint16_t whole[16 * 8], banded[16 * 8];
+			memset(whole, 0xAA, sizeof(whole));
+			memset(banded, 0x55, sizeof(banded));
+
+			bool ok_whole = convert_to_rgb565(&img, pal, whole, 0,
+					(uint32_t)w * (uint32_t)h);
+
+			bool ok_band = true;
+			const int band = 3;	 /* deliberately not a divisor of h */
+			for (int row = 0; row < h; row += band) {
+				int rows = (row + band <= h) ? band : (h - row);
+				ok_band = ok_band && convert_to_rgb565(&img, pal,
+						banded + (size_t)row * (size_t)w,
+						(uint32_t)row * (uint32_t)w,
+						(uint32_t)rows * (uint32_t)w);
+			}
+
+			char msg[96];
+			snprintf(msg, sizeof(msg), "%s banded conversion returned ok", fmts[f].name);
+			expect_u32(msg, ok_whole && ok_band, true);
+
+			snprintf(msg, sizeof(msg), "%s banded equals whole", fmts[f].name);
+			expect_u32(msg, memcmp(whole, banded, sizeof(whole)) == 0, true);
+		}
+	}
 
 	printf("\n%d checks, %d failures\n", checks, failures);
 	return failures ? 1 : 0;

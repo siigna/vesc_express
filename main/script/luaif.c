@@ -56,6 +56,8 @@
 #include "freertos/queue.h"
 
 #include "esp_log.h"
+#include "esp_system.h"
+#include "esp_heap_caps.h"
 
 #include <string.h>
 #include <stdio.h>
@@ -162,6 +164,16 @@ uint32_t luaif_events_dropped(void) {
 
 static void engine_print(const char *msg) {
 	commands_printf_lisp("%s", msg);
+
+	/*
+	 * Also to the console. commands_printf_lisp delivers over whichever comm
+	 * port last received a packet, so on a board with no active port -- or
+	 * while the engine runs a script at boot, before anything has connected
+	 * -- script output goes nowhere. Mirroring it here means a console build
+	 * shows what a script said, which is the difference between "the script
+	 * printed nothing" and "the print did not get delivered".
+	 */
+	ESP_LOGI(TAG, "print: %s", msg);
 }
 
 static bool engine_should_stop(void) {
@@ -215,8 +227,12 @@ static bool engine_open(void) {
 	m_engine = script_lua_open(&cfg);
 	if (!m_engine) {
 		commands_printf_lisp("Lua: could not create an interpreter");
+		ESP_LOGE(TAG, "script_lua_open failed (ceiling %d bytes, free heap %u)",
+				(int)LUA_MEM_LIMIT, (unsigned)esp_get_free_heap_size());
 		return false;
 	}
+
+	ESP_LOGI(TAG, "interpreter up, %u bytes held", (unsigned)script_lua_mem_used(m_engine));
 
 	lua_vesc_ext_register(m_engine);
 	lua_vesc_io_register(m_engine);
@@ -240,12 +256,27 @@ static bool load_blob(void) {
 	const uint8_t *data = flash_helper_code_data_raw(CODE_IND_LISP);
 	int size = flash_helper_code_size_raw(CODE_IND_LISP);
 	if (!data || size <= SCRIPT_HEADER_SIZE) {
+		/*
+		 * Logged, not silent. An engine that declines to start and says
+		 * nothing is indistinguishable from one that started and does
+		 * nothing, and on a board whose only channel is the packet protocol
+		 * -- which needs the engine to be useful -- that is a dead end. This
+		 * cost a session's worth of guessing before it was added.
+		 */
+		ESP_LOGE(TAG, "no script partition (data=%p size=%d)", data, size);
 		return false;
 	}
 
 	if (!script_pack_parse(data, (int32_t)size, &m_blob)) {
+		ESP_LOGE(TAG, "script container did not parse; first bytes "
+				"%02x %02x %02x %02x %02x %02x %02x %02x",
+				data[0], data[1], data[2], data[3],
+				data[4], data[5], data[6], data[7]);
 		return false;
 	}
+
+	ESP_LOGI(TAG, "script: %d source bytes, %d imports, lang %d",
+			(int)m_blob.src_len, (int)m_blob.num_imports, (int)m_blob.lang);
 
 	/*
 	 * A lisp container on a Lua build is reported rather than fed to the
@@ -277,6 +308,12 @@ static void run_loaded(void) {
 
 	if (!ok) {
 		commands_printf_lisp("Lua error: %s", err);
+		// Also to the console: on a board where the packet protocol is the
+		// only channel, an error explaining why the script died cannot only
+		// be delivered over that channel.
+		ESP_LOGE(TAG, "script error: %s", err);
+	} else {
+		ESP_LOGI(TAG, "script ran to completion");
 	}
 }
 
@@ -350,12 +387,17 @@ static void lua_task(void *arg) {
 			m_stop_req = false;
 
 			lock();
-			if (load_blob() && engine_open()) {
+			bool loaded = load_blob();
+			bool opened = loaded && engine_open();
+			if (opened) {
 				m_restart_cnt++;
 				unlock();
 				run_loaded();
 			} else {
 				unlock();
+				ESP_LOGE(TAG, "not starting: blob %s, interpreter %s",
+						loaded ? "ok" : "unusable",
+						opened ? "ok" : "not created");
 			}
 		}
 

@@ -35,5 +35,7 @@ build_lisp/
 build_p4_lisp/
 build_p4_bringup/
 build_p4_console/
+build_p4_lua/
+build_p4_lua_dbg/
 build_s3_lisp/
 build_s3_lua/

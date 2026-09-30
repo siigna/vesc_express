@@ -191,13 +191,29 @@ arguments:
 | `st7789`, `st7789a`, `ili9341`, `ili9488`, `gc9a01`, `jd9853`, `sh8601`, `ssd1351`, `st7735` | `sd0, clk, cs, reset, dc, [mhz]` |
 | `sh8501b`, `icna3306` | `sd0, clk, cs, reset, [mhz]` |
 | `ssd1306` | `sda, scl, [hz]` |
+| `st7701` | `rst, [lane_mbps]` — MIPI-DSI, ESP32-P4 only |
+
+`st7701` is the odd one out: it is a DSI panel, so there is no pin list, and it
+is the only loader that reports failure — a DSI link can fail for reasons a
+pin list cannot (the PHY LDO, the lane rate, the panel not answering).
+
+```lua
+vesc.gpio_configure(26, "out")
+vesc.gpio_write(26, false)          -- backlight, active-LOW on this board
+vesc.disp_load("st7701", 27, 500)
+vesc.disp_orientation(1)            -- 480x800 native -> landscape
+```
+
+`vesc.disp_orientation(0..3)` works only on panels whose driver can rotate,
+and raises otherwise rather than accepting the call and doing nothing — which
+is how a dash ends up sideways with no error anywhere.
 
 Loading registers the driver with the display backend, which is what makes the
 drawing functions start reaching the glass. An unknown panel name lists the
 available ones in the error rather than leaving you to guess at spellings.
 
-Not loadable this way yet: `st7701` and `st7701_rgb`, whose configuration is a
-struct rather than a pin list, and any board whose own `hw_*.c` provides a
+Not loadable this way yet: `st7701_rgb`, whose configuration is a struct
+rather than a pin list, and any board whose own `hw_*.c` provides a
 `disp-init`. Those boards are also not buildable with Lua yet.
 
 ### Drawing

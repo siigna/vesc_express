@@ -43,6 +43,13 @@ typedef void (*disp_clear_fn)(uint32_t color);
 typedef void (*disp_reset_fn)(void);
 
 /*
+ * Rotation, where the driver supports it. Optional: most panels in the tree
+ * do not offer one, and a script asking for rotation on a panel that cannot
+ * rotate should be told so rather than silently ignored.
+ */
+typedef bool (*disp_orientation_fn)(int rot);
+
+/*
  * Register the loaded driver. Any of the three may be NULL, in which case a
  * harmless stub is substituted -- a script calling into a display that failed
  * to initialise should do nothing, not crash the engine task.
@@ -54,6 +61,16 @@ void disp_backend_set(disp_render_fn render, disp_clear_fn clear,
 disp_render_fn disp_backend_render(void);
 disp_clear_fn disp_backend_clear(void);
 disp_reset_fn disp_backend_reset(void);
+
+/*
+ * Register an orientation handler. Separate from disp_backend_set because it
+ * is optional and only some drivers have one; a loader calls it right after
+ * registering the panel.
+ */
+void disp_backend_set_orientation_fn(disp_orientation_fn fn);
+
+// NULL when the loaded panel cannot rotate.
+disp_orientation_fn disp_backend_orientation(void);
 
 // Whether a real driver has been registered, for reporting rather than for
 // guarding calls.

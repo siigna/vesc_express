@@ -45,6 +45,9 @@
 #include "disp_sh8501b.h"
 #include "disp_icna3306.h"
 #include "disp_ssd1306.h"
+#if CONFIG_IDF_TARGET_ESP32P4
+#include "disp_st7701.h"
+#endif
 
 #include <string.h>
 
@@ -71,6 +74,7 @@ typedef enum {
 	LOADER_SPI6,	// sd0, clk, cs, reset, dc, mhz
 	LOADER_SPI5,	// sd0, clk, cs, reset, mhz -- no data/command pin
 	LOADER_I2C,	// sda, scl, hz
+	LOADER_DSI,	// rst, lane_mbps -- MIPI-DSI, so no pin list to pass
 } loader_kind_t;
 
 typedef struct {
@@ -79,36 +83,69 @@ typedef struct {
 	void (*init6)(int, int, int, int, int, int);
 	void (*init5)(int, int, int, int, int);
 	void (*init_i2c)(int, int, uint32_t);
+	bool (*init_dsi)(int, int);
+	disp_orientation_fn orientation;
 	disp_render_fn render;
 	disp_clear_fn clear;
 	disp_reset_fn reset;
 } loader_t;
 
+/*
+ * Designated initialisers, not positional. The struct has ten fields, four of
+ * which are function pointers that differ only in arity, and a positional
+ * list put two panels' init functions in the DSI slot -- which the compiler
+ * caught only because the arities happened to differ. Naming the fields makes
+ * that class of mistake impossible rather than merely detectable.
+ */
 static const loader_t m_loaders[] = {
-	{"st7789", LOADER_SPI6, disp_st7789_init, NULL, NULL,
-		disp_st7789_render_image, disp_st7789_clear, disp_st7789_reset},
-	{"st7789a", LOADER_SPI6, disp_st7789a_init, NULL, NULL,
-		disp_st7789a_render_image, disp_st7789a_clear, disp_st7789a_reset},
-	{"ili9341", LOADER_SPI6, disp_ili9341_init, NULL, NULL,
-		disp_ili9341_render_image, disp_ili9341_clear, disp_ili9341_reset},
-	{"ili9488", LOADER_SPI6, disp_ili9488_init, NULL, NULL,
-		disp_ili9488_render_image, disp_ili9488_clear, disp_ili9488_reset},
-	{"gc9a01", LOADER_SPI6, disp_gc9a01_init, NULL, NULL,
-		disp_gc9a01_render_image, disp_gc9a01_clear, disp_gc9a01_reset},
-	{"jd9853", LOADER_SPI6, disp_jd9853_init, NULL, NULL,
-		disp_jd9853_render_image, disp_jd9853_clear, disp_jd9853_reset},
-	{"sh8601", LOADER_SPI6, disp_sh8601_init, NULL, NULL,
-		disp_sh8601_render_image, disp_sh8601_clear, disp_sh8601_reset},
-	{"ssd1351", LOADER_SPI6, disp_ssd1351_init, NULL, NULL,
-		disp_ssd1351_render_image, disp_ssd1351_clear, disp_ssd1351_reset},
-	{"st7735", LOADER_SPI6, disp_st7735_init, NULL, NULL,
-		disp_st7735_render_image, disp_st7735_clear, disp_st7735_reset},
-	{"sh8501b", LOADER_SPI5, NULL, disp_sh8501b_init, NULL,
-		disp_sh8501b_render_image, disp_sh8501b_clear, disp_sh8501b_reset},
-	{"icna3306", LOADER_SPI5, NULL, disp_icna3306_init, NULL,
-		disp_icna3306_render_image, disp_icna3306_clear, disp_icna3306_reset},
-	{"ssd1306", LOADER_I2C, NULL, NULL, disp_ssd1306_init,
-		disp_ssd1306_render_image, disp_ssd1306_clear, disp_ssd1306_reset},
+	{.name = "st7789", .kind = LOADER_SPI6, .init6 = disp_st7789_init,
+		.render = disp_st7789_render_image, .clear = disp_st7789_clear,
+		.reset = disp_st7789_reset},
+	{.name = "st7789a", .kind = LOADER_SPI6, .init6 = disp_st7789a_init,
+		.render = disp_st7789a_render_image, .clear = disp_st7789a_clear,
+		.reset = disp_st7789a_reset},
+	{.name = "ili9341", .kind = LOADER_SPI6, .init6 = disp_ili9341_init,
+		.render = disp_ili9341_render_image, .clear = disp_ili9341_clear,
+		.reset = disp_ili9341_reset},
+	{.name = "ili9488", .kind = LOADER_SPI6, .init6 = disp_ili9488_init,
+		.render = disp_ili9488_render_image, .clear = disp_ili9488_clear,
+		.reset = disp_ili9488_reset},
+	{.name = "gc9a01", .kind = LOADER_SPI6, .init6 = disp_gc9a01_init,
+		.render = disp_gc9a01_render_image, .clear = disp_gc9a01_clear,
+		.reset = disp_gc9a01_reset},
+	{.name = "jd9853", .kind = LOADER_SPI6, .init6 = disp_jd9853_init,
+		.render = disp_jd9853_render_image, .clear = disp_jd9853_clear,
+		.reset = disp_jd9853_reset},
+	{.name = "sh8601", .kind = LOADER_SPI6, .init6 = disp_sh8601_init,
+		.render = disp_sh8601_render_image, .clear = disp_sh8601_clear,
+		.reset = disp_sh8601_reset},
+	{.name = "ssd1351", .kind = LOADER_SPI6, .init6 = disp_ssd1351_init,
+		.render = disp_ssd1351_render_image, .clear = disp_ssd1351_clear,
+		.reset = disp_ssd1351_reset},
+	{.name = "st7735", .kind = LOADER_SPI6, .init6 = disp_st7735_init,
+		.render = disp_st7735_render_image, .clear = disp_st7735_clear,
+		.reset = disp_st7735_reset},
+	{.name = "sh8501b", .kind = LOADER_SPI5, .init5 = disp_sh8501b_init,
+		.render = disp_sh8501b_render_image, .clear = disp_sh8501b_clear,
+		.reset = disp_sh8501b_reset},
+	{.name = "icna3306", .kind = LOADER_SPI5, .init5 = disp_icna3306_init,
+		.render = disp_icna3306_render_image, .clear = disp_icna3306_clear,
+		.reset = disp_icna3306_reset},
+	{.name = "ssd1306", .kind = LOADER_I2C, .init_i2c = disp_ssd1306_init,
+		.render = disp_ssd1306_render_image, .clear = disp_ssd1306_clear,
+		.reset = disp_ssd1306_reset},
+#if CONFIG_IDF_TARGET_ESP32P4
+	/*
+	 * MIPI-DSI rather than a parallel or SPI bus, so the only arguments are
+	 * the reset pin and the lane rate -- the pixel path belongs to the DSI
+	 * peripheral. This panel also rotates, via a software transpose in the
+	 * driver, so it registers an orientation handler.
+	 */
+	{.name = "st7701", .kind = LOADER_DSI, .init_dsi = disp_st7701_init,
+		.orientation = disp_st7701_set_orientation,
+		.render = disp_st7701_render_image, .clear = disp_st7701_clear,
+		.reset = disp_st7701_reset},
+#endif
 };
 
 static int l_disp_load(lua_State *L) {
@@ -162,9 +199,28 @@ static int l_disp_load(lua_State *L) {
 				(int)luaL_checkinteger(L, 3),
 				(uint32_t)luaL_optinteger(L, 4, 700000));
 		break;
+
+	case LOADER_DSI: {
+		int rst = (int)luaL_checkinteger(L, 2);
+		int mbps = (int)luaL_optinteger(L, 3, 500);
+		if (mbps <= 0 || mbps > 4000) {
+			return luaL_error(L, "disp_load: %d Mbps is not a usable DSI lane "
+					"rate", mbps);
+		}
+		// Unlike the others this one reports failure, since bringing up a DSI
+		// link can fail for reasons a pin list cannot: the PHY LDO, the lane
+		// rate, the panel not answering.
+		if (!ld->init_dsi(rst, mbps)) {
+			return luaL_error(L, "disp_load: the ST7701 did not come up. "
+					"Check the reset pin and the lane rate.");
+		}
+	} break;
 	}
 
 	disp_backend_set(ld->render, ld->clear, ld->reset);
+	if (ld->orientation) {
+		disp_backend_set_orientation_fn(ld->orientation);
+	}
 
 	lua_pushboolean(L, 1);
 	return 1;
@@ -181,8 +237,31 @@ static int l_disp_panels(lua_State *L) {
 }
 
 
+/*
+ * vesc.disp_orientation(0..3)
+ *
+ * Only some panels can rotate. Saying so beats accepting the call and
+ * doing nothing, which is how a dash ends up sideways with no error.
+ */
+static int l_disp_orientation(lua_State *L) {
+	int rot = (int)luaL_checkinteger(L, 1);
+
+	disp_orientation_fn fn = disp_backend_orientation();
+	if (!fn) {
+		return luaL_error(L, "disp_orientation: the loaded panel cannot "
+				"rotate (or none is loaded)");
+	}
+	if (!fn(rot)) {
+		return luaL_error(L, "disp_orientation: %d is not 0, 1, 2 or 3", rot);
+	}
+
+	lua_pushboolean(L, 1);
+	return 1;
+}
+
 static const luaL_Reg loader_fns[] = {
 	{"disp_load", l_disp_load},
+	{"disp_orientation", l_disp_orientation},
 	{"disp_panels", l_disp_panels},
 	{NULL, NULL},
 };

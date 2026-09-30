@@ -27,6 +27,7 @@ static bool (*volatile m_render)(image_buffer_t *img, uint16_t x, uint16_t y,
 		color_t *colors) = NULL;
 static void (*volatile m_clear)(uint32_t color) = NULL;
 static void (*volatile m_reset)(void) = NULL;
+static bool (*volatile m_orientation)(int rot) = NULL;
 static volatile bool m_loaded = false;
 
 static bool stub_render(image_buffer_t *img, uint16_t x, uint16_t y,
@@ -47,7 +48,18 @@ void disp_backend_set(disp_render_fn render, disp_clear_fn clear,
 	m_render = render;
 	m_clear = clear;
 	m_reset = reset;
+	// Cleared here rather than left over: loading a different panel must not
+	// inherit the previous one's rotation handler.
+	m_orientation = NULL;
 	m_loaded = render != NULL;
+}
+
+void disp_backend_set_orientation_fn(disp_orientation_fn fn) {
+	m_orientation = fn;
+}
+
+disp_orientation_fn disp_backend_orientation(void) {
+	return m_orientation;
 }
 
 disp_render_fn disp_backend_render(void) {

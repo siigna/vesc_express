@@ -25,6 +25,9 @@
 #if CONFIG_IDF_TARGET_ESP32P4
 
 bool disp_st7701_init(int pin_rst, int lane_mbps);
+
+// Rotation 0..3, engine-neutral. Returns false for anything else.
+bool disp_st7701_set_orientation(int rot);
 void disp_st7701_deinit(void);
 bool disp_st7701_render_image(image_buffer_t *img, uint16_t x, uint16_t y, color_t *colors);
 void disp_st7701_clear(uint32_t color);

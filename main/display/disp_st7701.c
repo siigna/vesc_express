@@ -396,16 +396,26 @@ void disp_st7701_reset(void) {
     }
 }
 
+/*
+ * Rotation, in a form either script engine can call. The lisp wrapper below
+ * is a thin shell over this; the Lua side reaches it through the orientation
+ * callback in disp_backend.
+ */
+bool disp_st7701_set_orientation(int rot) {
+    if (rot < 0 || rot > 3) {
+        return false;
+    }
+    m_rotation = rot;
+    return true;
+}
+
 #if defined(SCRIPT_ENGINE_LISP)
 lbm_value disp_st7701_ext_orientation(lbm_value *args, lbm_uint argn) {
     LBM_CHECK_ARGN_NUMBER(1);
-    int rot = lbm_dec_as_i32(args[0]);
-    if (rot < 0 || rot > 3) {
+    if (!disp_st7701_set_orientation(lbm_dec_as_i32(args[0]))) {
         lbm_set_error_reason("Orientation must be 0, 1, 2 or 3");
         return ENC_SYM_EERROR;
     }
-
-    m_rotation = rot;
     return ENC_SYM_TRUE;
 }
 #endif /* SCRIPT_ENGINE_LISP */

@@ -331,13 +331,67 @@ static int l_img_text(lua_State *L) {
 	float w = 0.0f;
 	walk_text(f, str, draw_glyph, &ctx, &w);
 
-	lua_pushinteger(L, (lua_Integer)(w + 0.5f));
+	/*
+	 * Truncated, not rounded, to match the lisp: ttf-text-dims returns
+	 * (uint32_t)w, and the dash's centring was tuned against that.
+	 *
+	 * Changing it did not move the one-pixel text offset still outstanding
+	 * between the ported view_static and its reference -- those widths were
+	 * already integral -- so this is a semantics match rather than that fix.
+	 */
+	lua_pushinteger(L, (lua_Integer)w);
 	return 1;
+}
+
+/*
+ * font:glyph_dims(str) -> width, height of the first glyph in str
+ *
+ * The rasterised size of one glyph, which is not the same as what measure()
+ * reports: that is an advance width, and includes the side bearings a layout
+ * needs but a centring calculation must not.
+ *
+ * It exists because that is how the dash centres text vertically -- by the
+ * cap height of "D" rather than by the font's ascent, so a line of digits
+ * sits where the eye expects. Without it a port cannot place text where the
+ * lisp places it, which is how this binding came to be written: the
+ * view_static render differed from its reference and this was missing.
+ */
+static int l_font_glyph_dims(lua_State *L) {
+	font_ud_t *f = check_font(L, 1);
+	const char *str = luaL_checkstring(L, 2);
+
+	uint32_t utf32 = 0;
+	uint32_t next_i = 0;
+	if (!ttf_font_utf32((const uint8_t *)str, &utf32, 0, &next_i)) {
+		return luaL_error(L, "glyph_dims: no character to measure");
+	}
+
+	float advance_width = 0.0f;
+	float left_side_bearing = 0.0f;
+	int32_t y_offset = 0;
+	int32_t width = 0;
+	int32_t height = 0;
+	uint8_t *gfx = NULL;
+
+	if (!font_get_glyph((uint8_t *)f->data, &advance_width, &left_side_bearing,
+			&y_offset, &width, &height, &gfx, utf32, f->num_codes,
+			(color_format_t)f->fmt, f->glyphs_index)) {
+		// A font prepared with a reduced character set is the normal case
+		// here, so a missing glyph is zero sized rather than an error.
+		lua_pushinteger(L, 0);
+		lua_pushinteger(L, 0);
+		return 2;
+	}
+
+	lua_pushinteger(L, width);
+	lua_pushinteger(L, height);
+	return 2;
 }
 
 static const luaL_Reg font_methods[] = {
 	{"metrics", l_font_metrics},
 	{"measure", l_font_measure},
+	{"glyph_dims", l_font_glyph_dims},
 	{NULL, NULL},
 };
 

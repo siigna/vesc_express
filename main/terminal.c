@@ -190,6 +190,14 @@ void terminal_process_string(char *str) {
 		int n = log_ring_read(lines, LOG_RING_LINES);
 		uint32_t dropped = log_ring_dropped();
 
+		// Suspended while printing, because commands_printf feeds the ring:
+		// without this the dump pushes a copy of itself over the lines it
+		// exists to show, and every read after the first sees only the
+		// previous read. That cost a long detour -- an instrumented build
+		// looked like it was not instrumented at all, because the evidence
+		// was evicted by the act of looking at it.
+		log_ring_suspend();
+
 		if (dropped > 0) {
 			commands_printf("... %u earlier lines dropped", (unsigned)dropped);
 		}
@@ -198,6 +206,7 @@ void terminal_process_string(char *str) {
 		}
 		commands_printf("%d lines held", n);
 		commands_printf(" ");
+		log_ring_resume();
 	} else if (strcmp(argv[0], "can_devs") == 0) {
 		commands_printf("CAN devices seen on the bus the past second:\n");
 		for (int i = 0;i < CAN_STATUS_MSGS_TO_STORE;i++) {

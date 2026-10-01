@@ -308,6 +308,24 @@ def cmd_listen(b, args):
     return 0
 
 
+def dump_log(b, secs=3.0):
+    """Send the `log` terminal command on an already-open connection.
+
+    Separate from cmd_term so any action can be followed by a look at the
+    ring without opening a second connection -- which matters because
+    connecting resets the board on these bridges, and a reset wipes the ring.
+    Chasing a REPL command that seemed not to run cost a detour for exactly
+    that reason: the ring being read was from the reset, not from the boot
+    the command was sent to.
+    """
+    print("--- kept log:")
+    before = len(b.prints)
+    b.send(bytes([COMM_TERMINAL_CMD]) + b"log")
+    b.collect(secs)
+    for line in b.prints[before:]:
+        print("  " + line)
+
+
 def cmd_term(b, args):
     """Run a terminal command and print what it says.
 
@@ -426,6 +444,10 @@ def main():
                     help="do not reset on connect (see the note in this file)")
     ap.add_argument("--no-run", action="store_true",
                     help="upload without starting the script")
+    ap.add_argument("--log", action="store_true",
+                    help="afterwards, dump the kept log on the same "
+                         "connection. Opening a second one would reset the "
+                         "board and wipe it.")
     args = ap.parse_args()
 
     if args.action == "upload" and not args.file:
@@ -447,12 +469,15 @@ def main():
                 return 1
             if found != BAUD_CANDIDATES[0]:
                 print("board is at %d baud" % found)
-        return {
+        rc = {
             "ping": cmd_ping, "upload": cmd_upload, "run": cmd_run,
             "stop": cmd_stop, "erase": cmd_erase, "listen": cmd_listen,
             "stats": cmd_stats, "console": cmd_console, "repl": cmd_repl,
             "term": cmd_term,
         }[args.action](b, args)
+        if args.log and args.action != "term":
+            dump_log(b)
+        return rc
     finally:
         b.close()
 

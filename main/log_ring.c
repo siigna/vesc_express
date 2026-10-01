@@ -31,6 +31,7 @@ static int m_head;		// where the next line goes
 static int m_count;
 static uint32_t m_dropped;
 static bool m_init;
+static int m_suspend;
 
 /*
  * A spinlock rather than a mutex. The producers include the ESP-IDF log hook,
@@ -52,6 +53,7 @@ void log_ring_init(void) {
 	m_head = 0;
 	m_count = 0;
 	m_dropped = 0;
+	m_suspend = 0;
 	m_init = true;
 	UNLOCK();
 }
@@ -83,6 +85,11 @@ void log_ring_addn(const char *text, size_t len) {
 	}
 
 	LOCK();
+
+	if (m_suspend > 0) {
+		UNLOCK();
+		return;
+	}
 
 	// Split on newlines: a producer that formats several lines in one call
 	// should read back as several, and vprintf-style callers routinely do.
@@ -129,6 +136,20 @@ int log_ring_read(char (*out)[LOG_RING_LINE_LEN], int max) {
 
 	UNLOCK();
 	return n;
+}
+
+void log_ring_suspend(void) {
+	LOCK();
+	m_suspend++;
+	UNLOCK();
+}
+
+void log_ring_resume(void) {
+	LOCK();
+	if (m_suspend > 0) {
+		m_suspend--;
+	}
+	UNLOCK();
 }
 
 int log_ring_count(void) {

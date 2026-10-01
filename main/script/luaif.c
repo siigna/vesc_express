@@ -46,6 +46,7 @@
 
 #include "lispif.h"
 #include "commands.h"
+#include "log_ring.h"
 #include "datatypes.h"
 #include "flash_helper.h"
 #include "mempools.h"

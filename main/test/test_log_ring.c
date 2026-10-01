@@ -155,6 +155,38 @@ int main(void) {
 	log_ring_addn("x", 0);
 	eq_int("a null or empty add is ignored", log_ring_count(), 1);
 
+	// Suspend and resume, which is what lets the ring be dumped without the
+	// dump overwriting it. Nesting matters: a dump inside a dump must not
+	// resume early.
+	log_ring_init();
+	log_ring_add("kept");
+	log_ring_suspend();
+	log_ring_add("dropped on the floor");
+	eq_int("suspended adds nothing", log_ring_count(), 1);
+	log_ring_resume();
+	log_ring_add("kept again");
+	eq_int("resumed accepts again", log_ring_count(), 2);
+	log_ring_read(out, 2);
+	eq_str("and the suspended line is absent", out[1], "kept again");
+
+	log_ring_suspend();
+	log_ring_suspend();
+	log_ring_resume();
+	log_ring_add("still suspended");
+	eq_int("nested: one resume is not enough", log_ring_count(), 2);
+	log_ring_resume();
+	log_ring_add("now");
+	eq_int("the second resume opens it", log_ring_count(), 3);
+
+	// An unbalanced resume must not leave the counter negative, or a later
+	// suspend would not take effect.
+	log_ring_resume();
+	log_ring_resume();
+	log_ring_suspend();
+	log_ring_add("suppressed");
+	eq_int("resume does not go below zero", log_ring_count(), 3);
+	log_ring_resume();
+
 	printf("\n%d checks, %d failures\n", checks, fails);
 	return fails > 0 ? 1 : 0;
 }

@@ -75,6 +75,19 @@ void log_ring_addn(const char *text, size_t len);
  */
 int log_ring_read(char (*out)[LOG_RING_LINE_LEN], int max);
 
+/*
+ * Stop and resume accepting lines.
+ *
+ * Dumping the ring prints it, and printing feeds it: the `log` terminal
+ * command pushed a copy of its own output over the 64 lines it was there to
+ * show, so the second read of a board only ever saw the first read. Suspend
+ * around a dump and the ring survives being looked at.
+ *
+ * Nests, so a dump inside a dump cannot resume early.
+ */
+void log_ring_suspend(void);
+void log_ring_resume(void);
+
 // How many lines are held, and how many were dropped for want of room.
 int log_ring_count(void);
 uint32_t log_ring_dropped(void);

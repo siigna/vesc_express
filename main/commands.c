@@ -30,6 +30,7 @@
 
 #include "commands.h"
 #include "esp_log.h"
+#include "esp_rom_sys.h"
 #include "conf_custom.h"
 #include "datatypes.h"
 #include "conf_general.h"
@@ -1263,7 +1264,20 @@ int commands_printf_lisp(const char* format, ...) {
 		 */
 		if (!send_func) {
 			print_buffer[len_to_print] = '\0';
-			ESP_LOGI("script", "%s", print_buffer + 1);
+			/*
+			 * esp_rom_printf, not ESP_LOGI.
+			 *
+			 * This runs on whichever task is printing, which for a script is
+			 * the engine's eval thread, and ESP_LOGI is full newlib printf --
+			 * one to two kilobytes of stack on RISC-V. Adding that to every
+			 * print killed the lisp eval thread silently partway through
+			 * starting a real dash package: the engine stopped with no
+			 * message, which looks exactly like a script that finished.
+			 *
+			 * The ROM printf uses a few dozen bytes and no heap. It handles
+			 * %s and the integer formats, which is all a passthrough needs.
+			 */
+			esp_rom_printf("script: %s\n", print_buffer + 1);
 		}
 
 		commands_send_packet((unsigned char*)print_buffer, len_to_print);

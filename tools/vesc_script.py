@@ -53,6 +53,7 @@ COMM_LISP_ERASE_CODE = 132
 COMM_LISP_SET_RUNNING = 133
 COMM_LISP_GET_STATS = 134
 COMM_LISP_PRINT = 135
+COMM_LISP_REPL_CMD = 138
 
 CHUNK = 384          # What VESC Tool uses; the firmware accepts it happily.
 BOOT_WAIT = 3.0      # Time from reset to the firmware answering packets.
@@ -270,6 +271,25 @@ def cmd_stats(b, args):
     return 0
 
 
+def cmd_repl(b, args):
+    """Evaluate one expression on the board.
+
+    The firmware rate-limits this to one command every 0.5 s and silently
+    ignores anything sooner, so the wait below is not politeness -- without it
+    a second command disappears with no error.
+    """
+    expr = args.file
+    if not expr:
+        print("repl needs an expression, e.g. repl '(bl-set 1)'")
+        return 1
+
+    time.sleep(0.6)
+    b.send(bytes([COMM_LISP_REPL_CMD]) + expr.encode("utf-8"))
+    b.collect(args.seconds)
+    show_prints(b)
+    return 0
+
+
 def cmd_console(b, args):
     """Raw console text, for a build whose console is on this port.
 
@@ -311,8 +331,9 @@ def main():
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("port")
     ap.add_argument("action", choices=["ping", "upload", "run", "stop", "erase",
-                                       "listen", "stats", "console"])
-    ap.add_argument("file", nargs="?", help="container for upload")
+                                       "listen", "stats", "console", "repl"])
+    ap.add_argument("file", nargs="?",
+                    help="container for upload, or the expression for repl")
     ap.add_argument("-b", "--baud", type=int, default=115200)
     ap.add_argument("-s", "--seconds", type=float, default=8.0,
                     help="how long to listen for output")
@@ -333,7 +354,7 @@ def main():
         return {
             "ping": cmd_ping, "upload": cmd_upload, "run": cmd_run,
             "stop": cmd_stop, "erase": cmd_erase, "listen": cmd_listen,
-            "stats": cmd_stats, "console": cmd_console,
+            "stats": cmd_stats, "console": cmd_console, "repl": cmd_repl,
         }[args.action](b, args)
     finally:
         b.close()

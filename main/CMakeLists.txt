@@ -74,6 +74,7 @@ set(COMPONENT_SRCS
 "rgbled/lispif_rgbled_extensions.c"
 
 "touch/lispif_touch_extensions.c"
+"touch/touch_core.c"
 "touch/touch_cst836u.c"
 
 "display/lispif_disp_extensions.c"
@@ -140,7 +141,9 @@ if(SCRIPT_ENGINE STREQUAL "lua")
         message(STATUS "Script engine: Lua (LispBM excluded)")
     endif()
 
-    # Everything written against the LispBM ABI.
+    # Everything written against the LispBM ABI. touch/touch_core.c and
+    # touch/touch_cst836u.c are deliberately absent: the touch hardware path
+    # is engine-neutral and both engines bind to it.
     set(LBM_DEPENDENT
         "lispif.c"
         "lispif_c_lib.c"
@@ -151,7 +154,6 @@ if(SCRIPT_ENGINE STREQUAL "lua")
         "wifi/lispif_wifi_extensions.c"
         "rgbled/lispif_rgbled_extensions.c"
         "touch/lispif_touch_extensions.c"
-        "touch/touch_cst836u.c"
         "display/lispif_disp_extensions.c"
         "display/clay_layout.c"
     )

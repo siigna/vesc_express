@@ -22,13 +22,13 @@
 
 #include <stdbool.h>
 #include "driver/i2c.h"
-#include "lispif_touch_extensions.h"
+#include "touch_core.h"
 
-esp_err_t touch_cst836u_init(i2c_port_t port, uint16_t width, uint16_t height, lispif_touch_driver_t *driver);
+esp_err_t touch_cst836u_init(i2c_port_t port, uint16_t width, uint16_t height, touch_driver_t *driver);
 void touch_cst836u_set_transforms(bool swap_xy, bool mirror_x, bool mirror_y);
 void touch_cst836u_reset(void);
 
 esp_err_t touch_cst836u_read_data(void);
-esp_err_t touch_cst836u_get_data(lispif_touch_point_data_t *data, uint8_t *point_cnt, uint8_t max_point_cnt);
+esp_err_t touch_cst836u_get_data(touch_point_t *data, uint8_t *point_cnt, uint8_t max_point_cnt);
 
 #endif

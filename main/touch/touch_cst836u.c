@@ -37,7 +37,7 @@ static bool cst836u_mirror_x = false;
 static bool cst836u_mirror_y = false;
 
 static bool cst836u_has_point = false;
-static lispif_touch_point_data_t cst836u_point = {0};
+static touch_point_t cst836u_point = {0};
 static uint16_t cst836u_hist_x[3] = {0};
 static uint16_t cst836u_hist_y[3] = {0};
 static uint8_t cst836u_hist_cnt = 0;
@@ -84,7 +84,7 @@ static void cst836u_filter_push(uint16_t x, uint16_t y) {
 	cst836u_hist_y[2] = y;
 }
 
-static void cst836u_filter_apply(lispif_touch_point_data_t *point) {
+static void cst836u_filter_apply(touch_point_t *point) {
 	if (!point || cst836u_hist_cnt == 0) {
 		return;
 	}
@@ -129,7 +129,7 @@ static void cst836u_set_default_raw_geometry(uint16_t width, uint16_t height) {
 	cst836u_raw_height = height;
 }
 
-static void cst836u_apply_transforms(lispif_touch_point_data_t *point) {
+static void cst836u_apply_transforms(touch_point_t *point) {
 	if (!point || cst836u_width == 0 || cst836u_height == 0 || cst836u_raw_width == 0 || cst836u_raw_height == 0) {
 		return;
 	}
@@ -189,7 +189,7 @@ static void cst836u_apply_transforms(lispif_touch_point_data_t *point) {
 	point->y = y;
 }
 
-esp_err_t touch_cst836u_init(i2c_port_t port, uint16_t width, uint16_t height, lispif_touch_driver_t *driver) {
+esp_err_t touch_cst836u_init(i2c_port_t port, uint16_t width, uint16_t height, touch_driver_t *driver) {
 	if (!driver) {
 		return ESP_ERR_INVALID_ARG;
 	}
@@ -263,7 +263,7 @@ esp_err_t touch_cst836u_read_data(void) {
 	return ESP_OK;
 }
 
-esp_err_t touch_cst836u_get_data(lispif_touch_point_data_t *data, uint8_t *point_cnt, uint8_t max_point_cnt) {
+esp_err_t touch_cst836u_get_data(touch_point_t *data, uint8_t *point_cnt, uint8_t max_point_cnt) {
 	if (!data || !point_cnt || max_point_cnt == 0) {
 		return ESP_ERR_INVALID_ARG;
 	}

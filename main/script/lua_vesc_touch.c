@@ -18,27 +18,16 @@
 /*
  * Touch bindings for the Lua engine.
  *
- * This is a small self-contained I2C touch path rather than a share of the
- * lisp one, and that is a deliberate trade rather than laziness.
+ * These are a thin layer over touch_core, which is the same hardware path the
+ * LispBM bindings use. This file previously carried its own self-contained
+ * I2C setup for the GT911 alone -- a stopgap, and it said so -- which cost
+ * this engine the other five controllers and multi-touch.
  *
- * lispif_touch_extensions.c is 1155 lines in which the driver core and the
- * LispBM bindings are interleaved: validators call lbm_set_error_reason, and
- * touch events are flattened into lisp values and posted to the interpreter's
- * event queue. Guarding the bindings the way the panel drivers were guarded
- * leaves thirty LBM references inside the core, so making that file serve
- * both engines means extracting a neutral core -- a real refactor of code
- * that currently works and that the existing lisp dash depends on.
- *
- * Duplicating a hundred lines of esp_lcd_touch setup costs less than risking
- * that, and it keeps this engine's touch independent while the question is
- * still "does Lua touch work at all". The right end state is one neutral
- * core in main/touch with both engines as thin wrappers; this is not it, and
- * says so.
- *
- * What it does not do, which the lisp side does: interrupt-driven events,
- * multi-touch, and the other four controllers. Polling one point covers a
- * dash, and a script that polls at its own rate is easier to reason about
- * than one woken by an ISR.
+ * Still not here: interrupt-driven touch events. The core can deliver them,
+ * but the Lua side would need a new entry in script_event_t and a handler
+ * name in the dispatch table, and polling one point covers a dash. A script
+ * that polls at its own rate is also easier to reason about than one woken by
+ * an ISR.
  */
 
 #include "lua_vesc_ext.h"
@@ -46,45 +35,28 @@
 #include "script_lua.h"
 #include "lauxlib.h"
 
+#include "touch_core.h"
 #include "esp_lcd_touch.h"
-#include "esp_lcd_touch_gt911.h"
-#include "esp_lcd_panel_io.h"
-#include "driver/i2c.h"
 
 #include <string.h>
 
-// The same port the lisp touch code and the board's own drivers use. A board
-// has one touch bus; a second port number would be a conflict, not a choice.
-#define TOUCH_PORT		0
+#define TOUCH_FREQ_MIN		10000
+#define TOUCH_FREQ_MAX		1000000
 
-static esp_lcd_panel_io_handle_t m_io = NULL;
-static esp_lcd_touch_handle_t m_touch = NULL;
-static bool m_owns_bus = false;
-
-static void touch_unload(void) {
-	if (m_touch) {
-		esp_lcd_touch_del(m_touch);
-		m_touch = NULL;
-	}
-	if (m_io) {
-		esp_lcd_panel_io_del(m_io);
-		m_io = NULL;
-	}
-	if (m_owns_bus) {
-		i2c_driver_delete(TOUCH_PORT);
-		m_owns_bus = false;
-	}
+static int touch_err(lua_State *L, const char *what, esp_err_t res) {
+	return luaL_error(L, "%s: %s", what, esp_err_to_name(res));
 }
 
 /*
- * vesc.touch_load_gt911(sda, scl, rst, int_pin, width, height, [freq])
+ * vesc.touch_load_<part>(sda, scl, rst, int_pin, width, height, [freq])
  *
  * int_pin may be -1, and on several boards it has to be: the GT911 samples
  * that pin as its reset is released to choose between I2C address 0x5D and
  * 0x14, so a board that pulls it up answers at the other address from the one
- * the driver expects. Passing -1 leaves the pin alone and polls instead.
+ * the driver expects. Passing -1 leaves the pin alone and polls instead --
+ * though the core probes both addresses either way.
  */
-static int l_touch_load_gt911(lua_State *L) {
+static int touch_load_i2c(lua_State *L, touch_part_t part, const char *what) {
 	int sda = (int)luaL_checkinteger(L, 1);
 	int scl = (int)luaL_checkinteger(L, 2);
 	int rst = (int)luaL_checkinteger(L, 3);
@@ -94,76 +66,75 @@ static int l_touch_load_gt911(lua_State *L) {
 	uint32_t freq = (uint32_t)luaL_optinteger(L, 7, 400000);
 
 	if (width < 1 || height < 1) {
-		return luaL_error(L, "touch_load_gt911: %dx%d is not a usable size",
+		return luaL_error(L, "%s: %dx%d is not a usable size", what, width, height);
+	}
+	if (freq < TOUCH_FREQ_MIN || freq > TOUCH_FREQ_MAX) {
+		return luaL_error(L, "%s: %u Hz is outside 10k..1M", what, (unsigned)freq);
+	}
+	if (!touch_core_gpio_valid_or_nc(sda) || !touch_core_gpio_valid_or_nc(scl) ||
+			!touch_core_gpio_valid_or_nc(rst) || !touch_core_gpio_valid_or_nc(int_pin)) {
+		return luaL_error(L, "%s: bad pin number", what);
+	}
+
+	if (!touch_core_init()) {
+		return luaL_error(L, "%s: touch runtime init failed", what);
+	}
+
+	esp_err_t res = touch_core_load_i2c(part, sda, scl, rst, int_pin,
+			(uint16_t)width, (uint16_t)height, freq);
+	if (res != ESP_OK) {
+		return touch_err(L, what, res);
+	}
+
+	lua_pushboolean(L, 1);
+	return 1;
+}
+
+static int l_touch_load_gt911(lua_State *L) {
+	return touch_load_i2c(L, TOUCH_PART_GT911, "touch_load_gt911");
+}
+
+static int l_touch_load_cst816s(lua_State *L) {
+	return touch_load_i2c(L, TOUCH_PART_CST816S, "touch_load_cst816s");
+}
+
+static int l_touch_load_cst9217(lua_State *L) {
+	return touch_load_i2c(L, TOUCH_PART_CST9217, "touch_load_cst9217");
+}
+
+static int l_touch_load_axs15231(lua_State *L) {
+	return touch_load_i2c(L, TOUCH_PART_AXS15231, "touch_load_axs15231");
+}
+
+static int l_touch_load_cst836u(lua_State *L) {
+	return touch_load_i2c(L, TOUCH_PART_CST836U, "touch_load_cst836u");
+}
+
+// vesc.touch_load_xpt2046(host, mosi, miso, sclk, cs, int_pin, w, h, [freq])
+static int l_touch_load_xpt2046(lua_State *L) {
+	int host = (int)luaL_checkinteger(L, 1);
+	int mosi = (int)luaL_checkinteger(L, 2);
+	int miso = (int)luaL_checkinteger(L, 3);
+	int sclk = (int)luaL_checkinteger(L, 4);
+	int cs = (int)luaL_checkinteger(L, 5);
+	int int_pin = (int)luaL_checkinteger(L, 6);
+	int width = (int)luaL_checkinteger(L, 7);
+	int height = (int)luaL_checkinteger(L, 8);
+	uint32_t freq = (uint32_t)luaL_optinteger(L, 9, 2500000);
+
+	if (width < 1 || height < 1) {
+		return luaL_error(L, "touch_load_xpt2046: %dx%d is not a usable size",
 				width, height);
 	}
-	if (freq < 10000 || freq > 1000000) {
-		return luaL_error(L, "touch_load_gt911: %u Hz is outside 10k..1M",
-				(unsigned)freq);
+
+	if (!touch_core_init()) {
+		return luaL_error(L, "touch_load_xpt2046: touch runtime init failed");
 	}
 
-	touch_unload();
-
-	/*
-	 * The bus may already be up: a board's own hw_init can have claimed it
-	 * for a display helper or an expander on the same pins. Installing it
-	 * twice returns an error and, worse, deleting it on unload would pull the
-	 * bus out from under whatever else is using it -- so ownership is
-	 * recorded and only a bus opened here is ever closed here.
-	 */
-	const i2c_config_t conf = {
-		.mode = I2C_MODE_MASTER,
-		.sda_io_num = sda,
-		.scl_io_num = scl,
-		.sda_pullup_en = GPIO_PULLUP_ENABLE,
-		.scl_pullup_en = GPIO_PULLUP_ENABLE,
-		.master.clk_speed = freq,
-	};
-
-	if (i2c_param_config(TOUCH_PORT, &conf) != ESP_OK) {
-		return luaL_error(L, "touch_load_gt911: bad I2C pins");
-	}
-
-	esp_err_t bus = i2c_driver_install(TOUCH_PORT, conf.mode, 0, 0, 0);
-	if (bus == ESP_OK) {
-		m_owns_bus = true;
-	} else if (bus != ESP_ERR_INVALID_STATE) {
-		// INVALID_STATE means somebody else already installed it, which is
-		// fine. Anything else is a real failure.
-		return luaL_error(L, "touch_load_gt911: I2C bus failed (%s)",
-				esp_err_to_name(bus));
-	}
-
-	esp_lcd_panel_io_i2c_config_t io_conf = ESP_LCD_TOUCH_IO_I2C_GT911_CONFIG();
-	io_conf.scl_speed_hz = 0;	// take the bus speed configured above
-
-	esp_err_t res = esp_lcd_new_panel_io_i2c(TOUCH_PORT, &io_conf, &m_io);
+	esp_err_t res = touch_core_load_spi(TOUCH_PART_XPT2046, host, mosi, miso,
+			sclk, cs, int_pin, (uint16_t)width, (uint16_t)height, freq);
 	if (res != ESP_OK) {
-		touch_unload();
-		return luaL_error(L, "touch_load_gt911: panel io failed (%s)",
-				esp_err_to_name(res));
-	}
-
-	esp_lcd_touch_io_gt911_config_t gt911_cfg = {
-		.dev_addr = io_conf.dev_addr,
-	};
-
-	esp_lcd_touch_config_t tp_cfg = {
-		.x_max = (uint16_t)width,
-		.y_max = (uint16_t)height,
-		.rst_gpio_num = rst >= 0 ? (gpio_num_t)rst : GPIO_NUM_NC,
-		.int_gpio_num = int_pin >= 0 ? (gpio_num_t)int_pin : GPIO_NUM_NC,
-		.levels = { .reset = 0, .interrupt = 0 },
-		.flags = { .swap_xy = 0, .mirror_x = 0, .mirror_y = 0 },
-		.driver_data = &gt911_cfg,
-	};
-
-	res = esp_lcd_touch_new_i2c_gt911(m_io, &tp_cfg, &m_touch);
-	if (res != ESP_OK) {
-		touch_unload();
-		return luaL_error(L, "touch_load_gt911: controller did not answer "
-				"(%s). On some boards the INT pin selects the address -- try "
-				"-1 for it.", esp_err_to_name(res));
+		return touch_err(L, "touch_load_xpt2046", res);
 	}
 
 	lua_pushboolean(L, 1);
@@ -171,89 +142,77 @@ static int l_touch_load_gt911(lua_State *L) {
 }
 
 static int l_touch_unload(lua_State *L) {
-	touch_unload();
-	lua_pushboolean(L, 1);
-	return 1;
+	(void)L;
+	touch_core_delete();
+	return 0;
 }
 
 /*
- * vesc.touch_read() -> x, y   or   nil when nothing is touching.
+ * vesc.touch_read() -> x, y, strength, track_id  or  nil when untouched.
  *
- * Returning nil rather than the last coordinates is the whole point: a dash
- * needs to know a finger has lifted, and a stale coordinate pair looks exactly
- * like a finger that has stopped moving.
+ * Returns nil rather than raising when nothing is loaded either, so a script
+ * can poll unconditionally on a board whose touch did not come up.
  */
 static int l_touch_read(lua_State *L) {
-	if (!m_touch) {
-		return luaL_error(L, "touch_read: call touch_load_gt911 first");
-	}
+	touch_point_t point;
+	uint8_t cnt = 0;
 
-	esp_err_t res = esp_lcd_touch_read_data(m_touch);
-	if (res != ESP_OK) {
-		lua_pushnil(L);
-		lua_pushstring(L, esp_err_to_name(res));
-		return 2;
-	}
-
-	uint16_t x[1] = {0};
-	uint16_t y[1] = {0};
-	uint16_t strength[1] = {0};
-	uint8_t count = 0;
-
-	if (!esp_lcd_touch_get_coordinates(m_touch, x, y, strength, &count, 1) ||
-			count == 0) {
+	if (touch_core_read(&point, &cnt, 1) != ESP_OK || cnt == 0) {
 		lua_pushnil(L);
 		return 1;
 	}
 
-	lua_pushinteger(L, (lua_Integer)x[0]);
-	lua_pushinteger(L, (lua_Integer)y[0]);
-	lua_pushinteger(L, (lua_Integer)strength[0]);
-	return 3;
+	lua_pushinteger(L, point.x);
+	lua_pushinteger(L, point.y);
+	lua_pushinteger(L, point.strength);
+	lua_pushinteger(L, point.track_id);
+	return 4;
 }
 
 /*
- * vesc.touch_transform(swap_xy, mirror_x, mirror_y)
+ * vesc.touch_read_all() -> { {x=,y=,strength=,track_id=}, ... }
  *
- * A rotated display needs this: the panel here is 480x800 native and driven
- * as 800x480, while the controller keeps reporting in its own frame, so touch
- * lands at the wrong place until the axes are brought into agreement.
- *
- * The mirror swap below is not redundant. When a driver has no native
- * set_swap_xy, esp_lcd_touch applies the generic swap after mirroring, so the
- * mirror flags refer to the pre-swap axes and have to be exchanged to mean
- * what the caller intended. The lisp engine does the same thing in
- * ext_touch_apply_transforms; getting it wrong gives a mapping that is right
- * for rotation but mirrored on one axis, which is easy to mistake for a
- * miscalibrated panel.
+ * An empty table when untouched, so the caller can take # of it without a nil
+ * check. Multi-touch is what the core reports; how many points a part gives
+ * is the part's business.
  */
-static int l_touch_transform(lua_State *L) {
-	if (!m_touch) {
-		return luaL_error(L, "touch_transform: call touch_load_gt911 first");
+static int l_touch_read_all(lua_State *L) {
+	touch_point_t points[CONFIG_ESP_LCD_TOUCH_MAX_POINTS];
+	uint8_t cnt = 0;
+
+	if (touch_core_read(points, &cnt, CONFIG_ESP_LCD_TOUCH_MAX_POINTS) != ESP_OK) {
+		cnt = 0;
 	}
 
+	lua_createtable(L, cnt, 0);
+	for (uint8_t i = 0;i < cnt;i++) {
+		lua_createtable(L, 0, 4);
+		lua_pushinteger(L, points[i].x);
+		lua_setfield(L, -2, "x");
+		lua_pushinteger(L, points[i].y);
+		lua_setfield(L, -2, "y");
+		lua_pushinteger(L, points[i].strength);
+		lua_setfield(L, -2, "strength");
+		lua_pushinteger(L, points[i].track_id);
+		lua_setfield(L, -2, "track_id");
+		lua_rawseti(L, -2, i + 1);
+	}
+
+	return 1;
+}
+
+// vesc.touch_transform(swap_xy, mirror_x, mirror_y)
+static int l_touch_transform(lua_State *L) {
 	bool swap_xy = lua_toboolean(L, 1);
 	bool mirror_x = lua_toboolean(L, 2);
 	bool mirror_y = lua_toboolean(L, 3);
 
-	bool apply_x = mirror_x;
-	bool apply_y = mirror_y;
-	if (swap_xy && m_touch->set_swap_xy == NULL) {
-		apply_x = mirror_y;
-		apply_y = mirror_x;
+	esp_err_t res = touch_core_set_transforms(swap_xy, mirror_x, mirror_y);
+	if (res == ESP_ERR_INVALID_STATE) {
+		return luaL_error(L, "touch_transform: touch not loaded");
 	}
-
-	esp_err_t res = esp_lcd_touch_set_swap_xy(m_touch, swap_xy);
-	if (res == ESP_OK) {
-		res = esp_lcd_touch_set_mirror_x(m_touch, apply_x);
-	}
-	if (res == ESP_OK) {
-		res = esp_lcd_touch_set_mirror_y(m_touch, apply_y);
-	}
-
 	if (res != ESP_OK) {
-		return luaL_error(L, "touch_transform failed (%s)",
-				esp_err_to_name(res));
+		return touch_err(L, "touch_transform", res);
 	}
 
 	lua_pushboolean(L, 1);
@@ -261,19 +220,25 @@ static int l_touch_transform(lua_State *L) {
 }
 
 static int l_touch_loaded(lua_State *L) {
-	lua_pushboolean(L, m_touch != NULL);
+	lua_pushboolean(L, touch_core_loaded());
 	return 1;
 }
 
-static const luaL_Reg touch_fns[] = {
+static const luaL_Reg touch_funcs[] = {
 	{"touch_load_gt911", l_touch_load_gt911},
+	{"touch_load_cst816s", l_touch_load_cst816s},
+	{"touch_load_cst9217", l_touch_load_cst9217},
+	{"touch_load_axs15231", l_touch_load_axs15231},
+	{"touch_load_cst836u", l_touch_load_cst836u},
+	{"touch_load_xpt2046", l_touch_load_xpt2046},
 	{"touch_unload", l_touch_unload},
 	{"touch_read", l_touch_read},
+	{"touch_read_all", l_touch_read_all},
 	{"touch_transform", l_touch_transform},
 	{"touch_loaded", l_touch_loaded},
 	{NULL, NULL},
 };
 
 void lua_vesc_touch_register(script_lua_t *s) {
-	script_lua_register(s, touch_fns);
+	script_lua_register(s, touch_funcs);
 }

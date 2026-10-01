@@ -358,8 +358,20 @@ def cmd_appdata(b, args):
         return 1
 
     b.send(bytes([COMM_CUSTOM_APP_DATA]) + args.file.encode() + b"\0")
-    b.collect(args.seconds)
+
+    # A reply comes back on the same channel, not as a print: the script's
+    # send_data is a custom app data packet. Collecting only prints showed
+    # nothing at all and looked like a handler that had not fired.
+    others = b.collect(args.seconds)
     show_prints(b)
+
+    replies = [p[1:].split(b"\0")[0].decode("utf-8", "replace")
+               for p in others if p and p[0] == COMM_CUSTOM_APP_DATA]
+    print("--- app data replies:")
+    for r in replies:
+        print("  " + r)
+    if not replies:
+        print("  (none)")
     return 0
 
 

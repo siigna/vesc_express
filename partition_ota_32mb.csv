@@ -1,0 +1,29 @@
+# Name,Type,SubType,Offset,Size
+#
+# 32 MB layout for boards that carry a 32 MB part, such as the Waveshare P4
+# Touch LCD 4.3. Built with the 16 MB table the bootloader warns at every
+# boot that it is ignoring half the chip.
+#
+# Every partition the firmware depends on deliberately stays inside the lower
+# 16 MB, and only bulk storage extends past it.
+#
+# That is not tidiness. A first attempt gave the app slots 8 MB each, which
+# pushed ota_1 and the script partition above the 16 MB boundary, and a script
+# uploaded there came back corrupt -- the parser reported "unexpected symbol
+# near '<\238>'", which is what writing into flash that was never really
+# erased looks like. The erase and the write both reported success. Flash
+# beyond 16 MB needs 32-bit addressing and nothing in the build turns that on,
+# so anything the firmware must read back belongs below the line.
+#
+# storage above 16 MB is therefore also unproven. It is a SPIFFS partition for
+# logs, so it fails visibly and harmlessly if that turns out not to work;
+# nothing boots from it.
+nvs,data,nvs,,0x6000
+otadata,data,ota,,0x2000
+phy_init,data,phy,,0x1000
+ota_0,app,ota_0,,4096k
+ota_1,app,ota_1,,4096k
+lisp,data,nvs,,512k
+qml,data,nvs,,128k
+coredump,data,coredump,,64k
+storage,data,spiffs,,23744k

@@ -30,6 +30,35 @@ language the source is, which is what lets one package store hold both.
 A `require` whose argument is not a literal string cannot be bundled —
 `luapack.py` reports it rather than guessing, and it will fail at runtime.
 
+## Talking to a board without VESC Tool
+
+`tools/vesc_script.py` uploads, runs and watches scripts over serial:
+
+```
+tools/vesc_script.py /dev/ttyACM0 ping
+tools/vesc_script.py /dev/ttyACM0 upload main.luapkg
+tools/vesc_script.py /dev/ttyACM0 stats
+tools/vesc_script.py /dev/ttyACM0 console -s 6     # raw log, console builds
+```
+
+It handles the parts that are easy to get wrong, and each of them cost real
+time to find:
+
+- **Opening the port can reset the board.** DTR and RTS drive BOOT and EN on a
+  USB-UART bridge, so a tool that sends a command shortly after opening is
+  talking to a chip still in its bootloader — indistinguishable from a board
+  that has stopped answering.
+- **Two frame formats.** Short frames lead with `0x02` and one length byte,
+  long frames with `0x03` and two. A parser handling only the short form
+  misses long replies silently, which is enough to conclude the engine is not
+  running when it is.
+- **Script output is not stored.** It arrives within milliseconds of the run
+  command, so anything waiting for a specific reply has to keep the output it
+  passes over instead of discarding it.
+- **Output goes to the last port that received a packet.** A script printing
+  at boot, before anything has connected, prints into nowhere. For that, use a
+  console build — script output is mirrored to the console there.
+
 ## What is available
 
 Lua's base, `coroutine`, `string`, `table` and `math` libraries, and a `vesc`

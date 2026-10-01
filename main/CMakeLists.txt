@@ -188,6 +188,7 @@ if(SCRIPT_ENGINE STREQUAL "lua")
         "script/lua_vesc_disp_load.c"
         "script/lua_vesc_touch.c"
         "script/lua_vesc_bms.c"
+        "script/lua_vesc_wifi.c"
         "script/lua_vesc_font.c"
         "lispBM/src/extensions/ttf_backend.c"
         "script/luaif.c"

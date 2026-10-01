@@ -328,6 +328,7 @@ static bool engine_open(void) {
 	lua_vesc_font_register(m_engine);
 	lua_vesc_touch_register(m_engine);
 	lua_vesc_bms_register(m_engine);
+	lua_vesc_wifi_register(m_engine);
 	script_lua_install_events(m_engine);
 	return true;
 }

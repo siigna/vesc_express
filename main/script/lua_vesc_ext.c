@@ -52,8 +52,68 @@
 #include "driver/gpio.h"
 
 #include <string.h>
+#include "log_ring.h"
+#include "esp_timer.h"
 
 // ---------------------------------------------------------------- system ---
+
+/*
+ * vesc.log_lines([max]) -> {string, ...}, dropped
+ *
+ * The most recent firmware log lines, oldest first, which is reading order
+ * for a boot log. Everything commands_printf, the ESP-IDF log and a script's
+ * own print produced, including the lines from before anything connected to
+ * the board -- those are sent to whichever port last spoke, which during
+ * bring-up is none, so they would otherwise be gone.
+ *
+ * The second return is how many lines were dropped for want of room. A log
+ * that silently loses its beginning is worse than one that says it did, and a
+ * display showing the log has somewhere to say it.
+ */
+static int l_log_lines(lua_State *L) {
+	lua_Integer want = luaL_optinteger(L, 1, LOG_RING_LINES);
+	if (want < 1) {
+		want = 1;
+	}
+	if (want > LOG_RING_LINES) {
+		want = LOG_RING_LINES;
+	}
+
+	// On the stack rather than the heap: the script engine's allocator has a
+	// ceiling and this is a diagnostic path, which is the worst place to need
+	// an allocation to succeed.
+	static char lines[LOG_RING_LINES][LOG_RING_LINE_LEN];
+	int n = log_ring_read(lines, (int)want);
+
+	lua_createtable(L, n, 0);
+	for (int i = 0; i < n; i++) {
+		lua_pushstring(L, lines[i]);
+		lua_rawseti(L, -2, i + 1);
+	}
+
+	lua_pushinteger(L, (lua_Integer)log_ring_dropped());
+	return 2;
+}
+
+// vesc.log_add(text) -- a line of the script's own, without printing it.
+static int l_log_add(lua_State *L) {
+	log_ring_add(luaL_checkstring(L, 1));
+	return 0;
+}
+
+/*
+ * vesc.micros() -> microseconds since boot, as an integer.
+ *
+ * systime is FreeRTOS ticks, which is milliseconds here -- too coarse to time
+ * one pass of anything that matters. esp_timer_get_time is 64-bit
+ * microseconds; this truncates to the Lua integer, which is int32 in this
+ * build, so it wraps every 35 minutes. Fine for a difference, wrong for a
+ * timestamp, and the name says which.
+ */
+static int l_micros(lua_State *L) {
+	lua_pushinteger(L, (lua_Integer)(uint32_t)esp_timer_get_time());
+	return 1;
+}
 
 static int l_systime(lua_State *L) {
 	lua_pushinteger(L, (lua_Integer)xTaskGetTickCount());
@@ -632,6 +692,10 @@ static int l_send_data(lua_State *L) {
 }
 
 static const luaL_Reg vesc_fns[] = {
+	{"log_lines", l_log_lines},
+	{"log_add", l_log_add},
+
+	{"micros", l_micros},
 	{"systime", l_systime},
 	{"secs_since", l_secs_since},
 	{"sleep", l_sleep},

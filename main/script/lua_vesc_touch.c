@@ -219,6 +219,27 @@ static int l_touch_transform(lua_State *L) {
 	return 1;
 }
 
+/*
+ * vesc.touch_stats() -> ok, err, last_err
+ *
+ * touch_read reports a failed read as nil, the same as an untouched panel, so
+ * a script can poll unconditionally on a board whose touch did not come up.
+ * That makes a controller which has stopped answering look exactly like a
+ * finger that is not there. These counters are the difference, and on a board
+ * whose only input is touch they are the first thing worth knowing.
+ */
+static int l_touch_stats(lua_State *L) {
+	uint32_t ok = 0, err = 0;
+	int last = 0;
+
+	touch_core_read_stats(&ok, &err, &last);
+
+	lua_pushinteger(L, (lua_Integer)ok);
+	lua_pushinteger(L, (lua_Integer)err);
+	lua_pushinteger(L, (lua_Integer)last);
+	return 3;
+}
+
 static int l_touch_loaded(lua_State *L) {
 	lua_pushboolean(L, touch_core_loaded());
 	return 1;
@@ -236,6 +257,7 @@ static const luaL_Reg touch_funcs[] = {
 	{"touch_read_all", l_touch_read_all},
 	{"touch_transform", l_touch_transform},
 	{"touch_loaded", l_touch_loaded},
+	{"touch_stats", l_touch_stats},
 	{NULL, NULL},
 };
 

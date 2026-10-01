@@ -105,6 +105,16 @@ bool touch_core_lock(void);
 void touch_core_unlock(void);
 
 // Read the controller and return up to max points. Locks internally.
+/*
+ * How many reads succeeded, how many failed, and the last error.
+ *
+ * The read path reports a failure as "not touched" so a script can poll
+ * unconditionally, which means a controller that has fallen off the bus looks
+ * exactly like a finger that is not there. These are how a script tells the
+ * difference. Any pointer may be NULL.
+ */
+void touch_core_read_stats(uint32_t *ok, uint32_t *err, int *last_err);
+
 esp_err_t touch_core_read(touch_point_t *points, uint8_t *point_cnt,
 		uint8_t max_point_cnt);
 

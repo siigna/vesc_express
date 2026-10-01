@@ -54,6 +54,12 @@ COMM_LISP_SET_RUNNING = 133
 COMM_LISP_GET_STATS = 134
 COMM_LISP_PRINT = 135
 COMM_LISP_REPL_CMD = 138
+COMM_TERMINAL_CMD = 20
+# Two print channels, not one. A script's output comes back as COMM_LISP_PRINT
+# and the firmware's own -- terminal command replies included -- as
+# COMM_PRINT. Collecting only the first is why `term log` first came back
+# empty: the board had answered, on the other id.
+COMM_PRINT = 21
 
 CHUNK = 384          # What VESC Tool uses; the firmware accepts it happily.
 
@@ -166,7 +172,7 @@ class Board:
         for p in unframe(buf):
             if not p:
                 continue
-            if p[0] == COMM_LISP_PRINT:
+            if p[0] == COMM_LISP_PRINT or p[0] == COMM_PRINT:
                 self.prints.append(p[1:].split(b"\0")[0].decode("utf-8", "replace"))
             else:
                 others.append(p)
@@ -192,7 +198,7 @@ class Board:
             for p in unframe(buf):
                 if not p:
                     continue
-                if p[0] == COMM_LISP_PRINT:
+                if p[0] == COMM_LISP_PRINT or p[0] == COMM_PRINT:
                     line = p[1:].split(b"\0")[0].decode("utf-8", "replace")
                     if line not in self.prints:
                         self.prints.append(line)
@@ -302,6 +308,22 @@ def cmd_listen(b, args):
     return 0
 
 
+def cmd_term(b, args):
+    """Run a terminal command and print what it says.
+
+    The reply comes back as COMM_PRINT packets rather than as a reply to the
+    request, so this sends and then collects, the way listen does. There is no
+    acknowledgement and no way to tell an unknown command from a silent one:
+    the firmware prints "Invalid command" for the former, which is the only
+    signal there is.
+    """
+    cmd = (args.file or "help").encode()
+    b.send(bytes([COMM_TERMINAL_CMD]) + cmd)
+    b.collect(args.seconds)
+    show_prints(b)
+    return 0
+
+
 def cmd_stats(b, args):
     r = b.request(bytes([COMM_LISP_GET_STATS, 1]), COMM_LISP_GET_STATS, 5)
     if not r or len(r) < 10:
@@ -309,6 +331,15 @@ def cmd_stats(b, args):
         return 1
     cpu, a, c = struct.unpack(">hhh", r[1:7])
     print("cpu %.2f%%  mem %.2f%%  heap %.2f%%" % (cpu / 100.0, a / 100.0, c / 100.0))
+    # The cpu figure is the engine task's share of run time since the previous
+    # GET_STATS call, not an instantaneous rate -- luaif.c keeps the last
+    # counters in statics. Connecting resets the board on this bridge, so a
+    # one-off `stats` always measures from boot and anything expensive during
+    # startup is averaged into it. Two readings in one session are the ones
+    # worth comparing, and this note exists because the first reading of a
+    # dash with a four-second splash looked like a six-fold regression.
+    print("  (share since the previous reading; the first after a reset "
+          "covers since boot)")
     rest = r[10:]
     while rest:
         end = rest.find(b"\0")
@@ -381,9 +412,11 @@ def main():
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("port")
     ap.add_argument("action", choices=["ping", "upload", "run", "stop", "erase",
-                                       "listen", "stats", "console", "repl"])
+                                       "listen", "stats", "console", "repl",
+                                       "term"])
     ap.add_argument("file", nargs="?",
-                    help="container for upload, or the expression for repl")
+                    help="container for upload, the expression for repl, or "
+                         "the command for term")
     ap.add_argument("-b", "--baud", type=int, default=None,
                     help="skip probing and use this rate. Without it the "
                          "common rates are tried, starting at 115200.")
@@ -418,6 +451,7 @@ def main():
             "ping": cmd_ping, "upload": cmd_upload, "run": cmd_run,
             "stop": cmd_stop, "erase": cmd_erase, "listen": cmd_listen,
             "stats": cmd_stats, "console": cmd_console, "repl": cmd_repl,
+            "term": cmd_term,
         }[args.action](b, args)
     finally:
         b.close()

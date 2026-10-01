@@ -557,6 +557,15 @@ void touch_core_unlock(void) {
 	}
 }
 
+/*
+ * Read tallies. Plain uint32 without a lock: they are only ever incremented
+ * inside the read lock and read for diagnostics, so a torn read reports a
+ * number one off rather than mattering.
+ */
+static uint32_t m_read_ok;
+static uint32_t m_read_err;
+static esp_err_t m_read_last_err;
+
 esp_err_t touch_core_read(touch_point_t *points, uint8_t *point_cnt, uint8_t max_point_cnt) {
 	if (!points || !point_cnt || max_point_cnt == 0) {
 		return ESP_ERR_INVALID_ARG;
@@ -571,8 +580,33 @@ esp_err_t touch_core_read(touch_point_t *points, uint8_t *point_cnt, uint8_t max
 		res = touch_driver.get_data(points, point_cnt, max_point_cnt);
 	}
 
+	// Counted, because the binding above this reports a failed read as "not
+	// touched" so a script can poll unconditionally on a board whose panel
+	// did not come up. That is the right default and it makes a controller
+	// that has stopped answering indistinguishable from a finger that is not
+	// there -- which is the one thing worth knowing when touch stops working
+	// on a board whose only input is touch.
+	if (res == ESP_OK) {
+		m_read_ok++;
+	} else {
+		m_read_err++;
+		m_read_last_err = res;
+	}
+
 	touch_core_unlock();
 	return res;
+}
+
+void touch_core_read_stats(uint32_t *ok, uint32_t *err, int *last_err) {
+	if (ok) {
+		*ok = m_read_ok;
+	}
+	if (err) {
+		*err = m_read_err;
+	}
+	if (last_err) {
+		*last_err = (int)m_read_last_err;
+	}
 }
 
 esp_err_t touch_core_set_transforms(bool swap_xy, bool mirror_x, bool mirror_y) {

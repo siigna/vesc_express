@@ -56,6 +56,12 @@ COMM_LISP_PRINT = 135
 COMM_LISP_REPL_CMD = 138
 
 CHUNK = 384          # What VESC Tool uses; the firmware accepts it happily.
+
+# Rates to probe when none is given, in the order they are tried. 115200 is
+# every board's default and comes first so the common case costs nothing; the
+# rest are what COMM_UART_BAUD is plausibly set to on a board where a 217 KB
+# package upload at 115200 was the bottleneck.
+BAUD_CANDIDATES = [115200, 921600, 460800, 1500000, 2000000]
 BOOT_WAIT = 3.0      # Time from reset to the firmware answering packets.
 
 _TAB = []
@@ -121,6 +127,16 @@ class Board:
         if reset:
             self.reset()
 
+    def set_baud(self, baud):
+        """Change rate on an open port, without touching the reset lines.
+
+        Re-opening would pulse DTR/RTS and reset the board, which is the whole
+        reason probing has to work this way: a reset per candidate would cost
+        three seconds each and lose any output in between.
+        """
+        self.s.baudrate = baud
+        self.s.reset_input_buffer()
+
     def reset(self):
         """Pulse EN, then wait for the firmware to be ready."""
         self.s.setDTR(False)     # BOOT released: run the app, not the ROM loader
@@ -173,6 +189,25 @@ class Board:
 
     def close(self):
         self.s.close()
+
+
+def probe_baud(b, candidates=None):
+    """Find the rate the board is talking at, by asking it its version.
+
+    A board built with -DCOMM_UART_BAUD=921600 is silent at 115200 and vice
+    versa, and the failure looks identical to a board that is not running:
+    "no reply". Probing turns that into an answer rather than a flag the user
+    has to remember matching to a build.
+
+    Returns the rate that answered, or None. The port is left at whatever rate
+    worked, so the caller can carry on using it.
+    """
+    for baud in (candidates or BAUD_CANDIDATES):
+        b.set_baud(baud)
+        if b.request(bytes([COMM_FW_VERSION]), COMM_FW_VERSION, 2):
+            return baud
+
+    return None
 
 
 def cmd_ping(b, args):
@@ -334,7 +369,9 @@ def main():
                                        "listen", "stats", "console", "repl"])
     ap.add_argument("file", nargs="?",
                     help="container for upload, or the expression for repl")
-    ap.add_argument("-b", "--baud", type=int, default=115200)
+    ap.add_argument("-b", "--baud", type=int, default=None,
+                    help="skip probing and use this rate. Without it the "
+                         "common rates are tried, starting at 115200.")
     ap.add_argument("-s", "--seconds", type=float, default=8.0,
                     help="how long to listen for output")
     ap.add_argument("--no-reset", action="store_true",
@@ -349,8 +386,19 @@ def main():
     # console does its own reset so it can capture the boot; everything else
     # wants the board already up before it speaks.
     do_reset = not args.no_reset and args.action != "console"
-    b = Board(args.port, args.baud, reset=do_reset)
+    b = Board(args.port, args.baud or BAUD_CANDIDATES[0], reset=do_reset)
     try:
+        # With no -b, find the rate rather than assuming one. Skipped for
+        # console, which is raw text and has no request to probe with, and for
+        # an explicit -b, which is the user saying they already know.
+        if args.baud is None and args.action != "console":
+            found = probe_baud(b)
+            if found is None:
+                print("no reply at any of %s"
+                      % ", ".join(str(x) for x in BAUD_CANDIDATES))
+                return 1
+            if found != BAUD_CANDIDATES[0]:
+                print("board is at %d baud" % found)
         return {
             "ping": cmd_ping, "upload": cmd_upload, "run": cmd_run,
             "stop": cmd_stop, "erase": cmd_erase, "listen": cmd_listen,

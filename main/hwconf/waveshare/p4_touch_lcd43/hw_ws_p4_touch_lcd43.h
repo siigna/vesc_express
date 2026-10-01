@@ -145,10 +145,20 @@
  *
  *   idf.py -DCOMM_UART_BAUD=921600 ...
  *
- * The CH343 bridge on this board handles several Mbaud, and the dash package
- * is 217 KB: at 115200 an upload is a quarter of a minute, at 921600 it is a
- * couple of seconds. Anything talking to a board built this way has to agree,
- * so tools/vesc_script.py probes the common rates rather than being told.
+ * The motivation is upload time: the dash package is 217 KB, which is a
+ * quarter of a minute at 115200. Anything talking to a board built this way
+ * has to agree on the rate, so tools/vesc_script.py probes rather than being
+ * told.
+ *
+ * Measured, and not yet working: built at 460800 or 921600 this board answers
+ * no packet at all, at any host rate including 115200, while the same build
+ * at 115200 is fine. It is not the wiring -- esptool drives the same two pins
+ * at 2 Mbaud to talk to the ROM loader, and flashing at that rate is how the
+ * firmware gets here. So the fault is on the firmware side of comm_uart, and
+ * one thing worth looking at first is that comm_uart_init calls
+ * uart_driver_install before uart_param_config, which is the reverse of the
+ * usual order and would plausibly leave the rate at whatever the bootloader
+ * set. Until that is understood, leave this alone.
  */
 #ifndef COMM_UART_BAUD
 #define COMM_UART_BAUD          115200

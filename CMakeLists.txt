@@ -95,6 +95,19 @@ if(DEFINED HW_NAME AND DEFINED HW_TARGET AND DEFINED HW_FILE_NAME)
     # Pass through hw file paths
     add_compile_definitions(HW_HEADER="${HW_FILE}.h" HW_SOURCE="${HW_FILE}.c")
 
+    # Comm UART baud, for a board whose header defers to COMM_UART_BAUD:
+    #
+    #   idf.py -DHW_NAME="..." -DCOMM_UART_BAUD=921600 build
+    #
+    # Left undefined the board keeps its own default, which is 115200
+    # everywhere -- what VESC Tool's board setup asks for. Raising it is worth
+    # it when uploading a package of a couple of hundred kilobytes, and
+    # anything that talks to the board has to agree on the number.
+    if(DEFINED COMM_UART_BAUD AND NOT "${COMM_UART_BAUD}" STREQUAL "")
+        add_compile_definitions(COMM_UART_BAUD=${COMM_UART_BAUD})
+        message(STATUS "Comm UART baud: ${COMM_UART_BAUD}")
+    endif()
+
     set(SDKCONFIG_DEFAULTS_FILE "sdkconfig.defaults.${HW_IDF_TARGET}")
     set(HW_TARGET_SDKCONFIG_DEFAULTS_FILE "sdkconfig.defaults.${HW_TARGET}")
 

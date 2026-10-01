@@ -20,6 +20,12 @@
  *
  *   render_host script.luapkg out.ppm [width height]
  *
+ * The script may also call vesc.save_frame("path.ppm") to emit the
+ * framebuffer as it stands, as many times as it likes. That is what lets one
+ * script walk every page and save each, the way the lisp harness calls
+ * save-active-img in a loop; out.ppm is still written at the end, so a
+ * single-image case needs nothing new.
+ *
  * This is the Lua counterpart of what the lispBM repl does for the lisp dash:
  * it runs the real drawing bindings against a framebuffer instead of a panel,
  * so a view can be checked against the goldens in dash_common/test without a
@@ -122,6 +128,30 @@ static bool never_stop(void) {
 	return false;
 }
 
+static int write_ppm(const char *path);
+
+/*
+ * vesc.save_frame(path) -- the framebuffer as it stands, as a PPM.
+ *
+ * The counterpart of the lisp repl's save-active-img, and only here: nothing
+ * on a board has a file to write to. Raises rather than returning a code,
+ * because a harness that silently failed to write a golden would compare the
+ * previous one and pass.
+ */
+static int l_save_frame(lua_State *L) {
+	const char *path = luaL_checkstring(L, 1);
+	if (write_ppm(path) != 0) {
+		return luaL_error(L, "save_frame: cannot write %s", path);
+	}
+	lua_pushboolean(L, 1);
+	return 1;
+}
+
+static const luaL_Reg host_funcs[] = {
+	{"save_frame", l_save_frame},
+	{NULL, NULL},
+};
+
 static int write_ppm(const char *path) {
 	FILE *f = fopen(path, "wb");
 	if (!f) {
@@ -197,6 +227,7 @@ int main(int argc, char **argv) {
 	lua_vesc_color_register(s);
 	lua_vesc_font_register(s);
 	script_lua_install_events(s);
+	script_lua_register(s, host_funcs);
 
 	char err[512] = {0};
 	if (!script_lua_run(s, parsed.src, parsed.src_len, "=view", err, sizeof(err))) {

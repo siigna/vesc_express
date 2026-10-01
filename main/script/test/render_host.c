@@ -18,7 +18,12 @@
 /*
  * Render a packed Lua script to an image, on the host.
  *
- *   render_host script.luapkg out.ppm [width height]
+ *   render_host script.luapkg out.ppm [width height [args...]]
+ *
+ * Anything after the size becomes the global `arg`, a table indexed from 1,
+ * the way the standalone interpreter presents its command line. That lets one
+ * harness script render more than one board profile, and lets a script behave
+ * the same here as it does under host Lua.
  *
  * The script may also call vesc.save_frame("path.ppm") to emit the
  * framebuffer as it stands, as many times as it likes. That is what lets one
@@ -228,6 +233,19 @@ int main(int argc, char **argv) {
 	lua_vesc_font_register(s);
 	script_lua_install_events(s);
 	script_lua_register(s, host_funcs);
+
+	// The global `arg`, from whatever followed the size.
+	if (argc > 5) {
+		lua_State *L = script_lua_state(s);
+		if (L) {
+			lua_createtable(L, argc - 5, 0);
+			for (int i = 5;i < argc;i++) {
+				lua_pushstring(L, argv[i]);
+				lua_rawseti(L, -2, i - 4);
+			}
+			lua_setglobal(L, "arg");
+		}
+	}
 
 	char err[512] = {0};
 	if (!script_lua_run(s, parsed.src, parsed.src_len, "=view", err, sizeof(err))) {

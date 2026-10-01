@@ -167,14 +167,14 @@ def module_path(base_dir: str, name: str) -> str:
 _LISP_IMPORT = re.compile(r"""\(\s*import\s+"([^"]+)"\s+'([^\s)]+)\s*\)""")
 
 
-def collect_lisp(main_path: str, verbose=False):
+def collect_lisp(main_path: str, verbose=False, import_root=None):
     """Read a lisp script and the files it imports.
 
     Not recursive: lisp imports bind a symbol to a file's bytes, and the
     importing script decides when to evaluate it, so an imported file's own
     imports are its business rather than something to resolve here.
     """
-    base_dir = os.path.dirname(os.path.abspath(main_path)) or '.'
+    base_dir = import_root_dir(main_path, import_root)
     with open(main_path, 'r', encoding='utf-8') as f:
         src = f.read()
 
@@ -243,14 +243,31 @@ def read_assets(specs, verbose=False):
     return order, assets
 
 
-def collect(main_path: str, verbose=False):
+def import_root_dir(main_path: str, import_root=None) -> str:
+    """Where a relative import resolves from.
+
+    Normally the main script's own directory, which is what VESC Tool does.
+    --import-root overrides it so a modified copy of a script can be packed
+    without moving it into the tree it imports from -- the case that comes up
+    when testing a change to somebody else's package.
+    """
+    if import_root:
+        root = os.path.abspath(import_root)
+        if not os.path.isdir(root):
+            raise NotADirectoryError("--import-root %s is not a directory"
+                                     % import_root)
+        return root
+    return os.path.dirname(os.path.abspath(main_path)) or '.'
+
+
+def collect(main_path: str, verbose=False, import_root=None):
     """Read the main script and every module reachable through require.
 
     Transitive, so a module may require another, and cycles terminate because
     a name already collected is not visited again -- the same property that
     makes require() itself safe at runtime.
     """
-    base_dir = os.path.dirname(os.path.abspath(main_path)) or '.'
+    base_dir = import_root_dir(main_path, import_root)
     with open(main_path, 'r', encoding='utf-8') as f:
         main_src = f.read()
 
@@ -471,6 +488,28 @@ def selftest() -> int:
         ok("payload offsets are 4-byte aligned",
            all(o % 4 == 0 for o in offsets_seen))
 
+        # --import-root resolves imports away from the script's own
+        # directory. Packed from /tmp against the fixture as root, the same
+        # modules must be found.
+        import shutil
+        with tempfile.TemporaryDirectory() as elsewhere:
+            moved = os.path.join(elsewhere, 'main.lua')
+            shutil.copy(os.path.join(d, 'main.lua'), moved)
+            _, root_order, _, _ = collect(moved, import_root=d)
+            ok("import-root finds modules outside the script's directory",
+               set(root_order) == {'mod', 'pkg.sub'})
+            try:
+                collect(moved)
+                ok("without import-root the same pack fails", False)
+            except OSError:
+                ok("without import-root the same pack fails", True)
+        try:
+            import_root_dir(os.path.join(d, 'main.lua'),
+                            os.path.join(d, 'not-a-dir'))
+            ok("bad import-root rejected", False)
+        except NotADirectoryError:
+            ok("bad import-root rejected", True)
+
         # A missing module is an error with a useful message, not a traceback.
         with open(os.path.join(d, 'bad.lua'), 'w') as f:
             f.write('require("nope")\n')
@@ -501,6 +540,10 @@ def main():
     ap.add_argument('--asset', action='append', metavar='NAME=PATH',
                     help='bundle a binary file, readable as vesc.asset(NAME). '
                          'Repeatable.')
+    ap.add_argument('--import-root', metavar='DIR',
+                    help="resolve relative imports from DIR instead of the "
+                         "script's own directory, so a script can be packed "
+                         'from outside the tree it imports from')
     ap.add_argument('--lisp', action='store_true',
                     help='mark the container as LispBM instead of Lua')
     ap.add_argument('-v', '--verbose', action='store_true')
@@ -513,11 +556,19 @@ def main():
     if not args.script:
         ap.error('a script is required unless --selftest is given')
 
-    if args.lisp:
-        main_src, order, modules, warnings = collect_lisp(args.script,
-                                                          args.verbose)
-    else:
-        main_src, order, modules, warnings = collect(args.script, args.verbose)
+    try:
+        if args.lisp:
+            main_src, order, modules, warnings = collect_lisp(
+                args.script, args.verbose, args.import_root)
+        else:
+            main_src, order, modules, warnings = collect(
+                args.script, args.verbose, args.import_root)
+    except OSError as e:
+        # A missing module or a bad --import-root is a user mistake; the
+        # messages say which file and where it was looked for, so a traceback
+        # on top of that is noise.
+        print("error: %s" % e, file=sys.stderr)
+        return 1
 
     try:
         asset_order, assets = read_assets(args.asset, args.verbose)

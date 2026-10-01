@@ -29,6 +29,7 @@
 #include "freertos/semphr.h"
 
 #include "commands.h"
+#include "esp_log.h"
 #include "conf_custom.h"
 #include "datatypes.h"
 #include "conf_general.h"
@@ -1243,6 +1244,26 @@ int commands_printf_lisp(const char* format, ...) {
 	if (len > 0) {
 		if (print_buffer[len_to_print - 1] == '\n') {
 			len_to_print--;
+		}
+
+		/*
+		 * With no comm port to deliver to, mirror script output to the
+		 * console instead of discarding it.
+		 *
+		 * This path is delivered over whichever port last received a packet,
+		 * so a script printing at boot -- or on a board whose only serial
+		 * port is carrying the console rather than the protocol -- prints
+		 * into nowhere. That makes a script that fails during startup
+		 * indistinguishable from one that never ran, which is the single
+		 * most expensive thing to debug on a board with one port.
+		 *
+		 * Guarded on send_func being absent so a board with a tool attached
+		 * is unaffected: printf costs one to two kilobytes of stack, and
+		 * this function can be reached from tasks that do not have it spare.
+		 */
+		if (!send_func) {
+			print_buffer[len_to_print] = '\0';
+			ESP_LOGI("script", "%s", print_buffer + 1);
 		}
 
 		commands_send_packet((unsigned char*)print_buffer, len_to_print);

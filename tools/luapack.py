@@ -273,9 +273,20 @@ def build(main_src: str, order, modules, lang_flag=FLAG_LANG_LUA) -> bytes:
     for name in order:
         body += as_bytes(modules[name])
 
-    # body currently starts with the flags word, which is inside the crc'd and
-    # counted region, matching what VESC Tool writes.
-    blob = struct.pack('>I', len(body)) + struct.pack('>H', crc16(bytes(body))) + bytes(body)
+    # The size field is len(body) - 2, not len(body).
+    #
+    # That is what VESC Tool writes (CodeLoader::lispUpload does
+    # vbAppendUint32(vb.size() - 2) where vb already begins with the flags
+    # word) and the firmware's code_check validates size and crc together, so
+    # being two bytes out makes the check fail and the engine run nothing at
+    # all, silently.
+    #
+    # This was wrong here and went unnoticed because the Lua loader reads the
+    # partition size rather than this field, so only a LispBM container
+    # exposed it -- as a script that uploaded cleanly and never started.
+    blob = (struct.pack('>I', len(body) - 2)
+            + struct.pack('>H', crc16(bytes(body)))
+            + bytes(body))
 
     if len(blob) > MAX_BLOB:
         raise ValueError("packed script is %d bytes, over the %d the script "
@@ -358,7 +369,11 @@ def selftest() -> int:
         # here rather than on a board.
         size = struct.unpack('>I', blob[0:4])[0]
         crc = struct.unpack('>H', blob[4:6])[0]
-        ok("size field matches", size == len(blob) - 6)
+        # Mirrors CodeLoader exactly: the counted region starts at the flags
+        # word and the figure stored is two less than its length. The previous
+        # expectation here encoded the same off-by-two as the writer, so the
+        # selftest agreed with the bug.
+        ok("size field is len(body) - 2", size == len(blob) - 6 - 2)
         ok("crc field matches", crc == crc16(blob[6:]))
 
         flags = struct.unpack('>H', blob[6:8])[0]

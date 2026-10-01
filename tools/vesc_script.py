@@ -62,7 +62,13 @@ CHUNK = 384          # What VESC Tool uses; the firmware accepts it happily.
 # rest are what COMM_UART_BAUD is plausibly set to on a board where a 217 KB
 # package upload at 115200 was the bottleneck.
 BAUD_CANDIDATES = [115200, 921600, 460800, 1500000, 2000000]
-BOOT_WAIT = 3.0      # Time from reset to the firmware answering packets.
+# Time from reset to the firmware answering packets. Three seconds was enough
+# until this board grew wifi: esp_hosted is configured to bring the ESP32-C6
+# co-processor up before app_main, with a 1.5 s reset settle and a bring-up
+# timeout of 5 s, so the firmware itself starts several seconds later than it
+# used to. Too short a wait here looks exactly like a board that is not
+# running -- "no reply" at every rate -- which is a bad way to learn this.
+BOOT_WAIT = 9.0
 
 _TAB = []
 for _i in range(256):

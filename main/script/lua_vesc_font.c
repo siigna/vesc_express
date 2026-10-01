@@ -289,6 +289,36 @@ static int l_img_text(lua_State *L) {
 	default: levels = 1; break;
 	}
 
+	/*
+	 * Refuse a base index whose coverage range runs off the end of the
+	 * destination, rather than writing past it.
+	 *
+	 * Antialiasing adds coverage to the base index, so an indexed4 glyph
+	 * drawn at index 3 writes 3, 4 and 5 -- and an indexed4 buffer holds
+	 * 0..3. The pixels past the end are the solid centre of every glyph, so
+	 * it does not look like an error: it looks like text that failed to
+	 * antialias, which is a bad thing to debug by eye. Checked against the
+	 * destination format rather than the palette because the palette is not
+	 * supplied until disp_render, by which time the pixels are already wrong.
+	 */
+	if (aa && levels > 1) {
+		uint32_t dst_max = 0;
+		switch (ud->img.fmt) {
+		case indexed2: dst_max = 1; break;
+		case indexed4: dst_max = 3; break;
+		case indexed16: dst_max = 15; break;
+		default: dst_max = 0; break;	// rgb and friends index nothing
+		}
+
+		if (dst_max > 0 && colour + levels - 1 > dst_max) {
+			return luaL_error(L, "text: base index %d with %d antialias "
+					"levels reaches %d, past the %d this buffer holds. "
+					"Use %d for a full ramp, or draw without antialiasing.",
+					(int)colour, (int)levels, (int)(colour + levels - 1),
+					(int)dst_max, (int)(dst_max - levels + 1));
+		}
+	}
+
 	draw_ctx_t ctx = {
 		.dst = &ud->img,
 		.x = x,

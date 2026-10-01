@@ -147,17 +147,29 @@ def find_dynamic_requires(src: str):
             if m.start() not in literal and not _in_string(m.start(), spans)]
 
 
-def module_path(base_dir: str, name: str) -> str:
-    """Resolve a module name the way Lua's default path would, relative to the
-    main script: dots become directory separators."""
+def module_path(roots, name: str) -> str:
+    """Resolve a module name the way Lua's package.path would: dots become
+    directory separators, and each root is tried in order.
+
+    More than one root is what lets a board package require the shared one.
+    The lisp dash does that with a relative import, which has no equivalent
+    here because require takes a module name rather than a path.
+    """
+    if isinstance(roots, str):
+        roots = [roots]
+
     rel = name.replace('.', os.sep)
-    for candidate in (rel + '.lua', os.path.join(rel, 'init.lua')):
-        path = os.path.join(base_dir, candidate)
-        if os.path.isfile(path):
-            return path
+    tried = []
+    for base_dir in roots:
+        for candidate in (rel + '.lua', os.path.join(rel, 'init.lua')):
+            path = os.path.join(base_dir, candidate)
+            tried.append(path)
+            if os.path.isfile(path):
+                return path
+
     raise FileNotFoundError(
-        "module '%s' required but not found (looked for %s.lua and %s/init.lua "
-        "under %s)" % (name, rel, rel, base_dir))
+        "module '%s' required but not found. Looked for:\n  %s"
+        % (name, '\n  '.join(tried)))
 
 
 # (import "path" 'symbol) -- the lisp form. The import table is keyed by the
@@ -200,7 +212,7 @@ def collect_lisp(main_path: str, verbose=False, import_root=None):
                             "symbol, so that is all it takes)" % (sym, path, sym))
             continue
 
-        full = os.path.normpath(os.path.join(base_dir, path))
+        full = os.path.normpath(os.path.join(base_dir[0], path))
         if not os.path.isfile(full):
             raise FileNotFoundError("%s imports %s, which is not there "
                                     "(looked at %s)" % (sym, path, full))
@@ -210,7 +222,7 @@ def collect_lisp(main_path: str, verbose=False, import_root=None):
         order.append(sym)
         if verbose:
             print("  import   %-24s %-44s %d bytes"
-                  % (sym, os.path.relpath(full, base_dir), len(payloads[sym])),
+                  % (sym, os.path.relpath(full, base_dir[0]), len(payloads[sym])),
                   file=sys.stderr)
 
     return src, order, payloads, warnings
@@ -252,12 +264,15 @@ def import_root_dir(main_path: str, import_root=None) -> str:
     when testing a change to somebody else's package.
     """
     if import_root:
-        root = os.path.abspath(import_root)
-        if not os.path.isdir(root):
-            raise NotADirectoryError("--import-root %s is not a directory"
-                                     % import_root)
-        return root
-    return os.path.dirname(os.path.abspath(main_path)) or '.'
+        roots = [import_root] if isinstance(import_root, str) else list(import_root)
+        out = []
+        for r in roots:
+            root = os.path.abspath(r)
+            if not os.path.isdir(root):
+                raise NotADirectoryError("--import-root %s is not a directory" % r)
+            out.append(root)
+        return out
+    return [os.path.dirname(os.path.abspath(main_path)) or '.']
 
 
 def collect(main_path: str, verbose=False, import_root=None):
@@ -287,7 +302,7 @@ def collect(main_path: str, verbose=False, import_root=None):
         order.append(name)
         sources[name] = src
         if verbose:
-            print("  bundling %-24s %s" % (name, os.path.relpath(path, base_dir)),
+            print("  bundling %-24s %s" % (name, os.path.relpath(path, base_dir[0])),
                   file=sys.stderr)
         for dep in find_requires(src):
             if dep not in modules:
@@ -519,6 +534,22 @@ def selftest() -> int:
         except FileNotFoundError as e:
             ok("missing module raises", 'nope' in str(e))
 
+        # Two roots, with the module only in the second: a board package
+        # requiring a shared one is exactly this shape.
+        with tempfile.TemporaryDirectory() as board:
+            with open(os.path.join(board, 'main.lua'), 'w') as f:
+                f.write('local m = require("mod")\nprint(m)\n')
+            _, order2, _, _ = collect(os.path.join(board, 'main.lua'),
+                                      import_root=[board, d])
+            ok("a second root is searched", order2 == ['mod'])
+
+            # And the first root still wins, so a board can override.
+            with open(os.path.join(board, 'mod.lua'), 'w') as f:
+                f.write('return {val = 99}\n')
+            _, _, mods2, _ = collect(os.path.join(board, 'main.lua'),
+                                     import_root=[board, d])
+            ok("the first root wins", 'val = 99' in mods2['mod'])
+
     # A NUL in the source would truncate the field.
     try:
         build('print("a\0b")', [], {})
@@ -540,10 +571,12 @@ def main():
     ap.add_argument('--asset', action='append', metavar='NAME=PATH',
                     help='bundle a binary file, readable as vesc.asset(NAME). '
                          'Repeatable.')
-    ap.add_argument('--import-root', metavar='DIR',
-                    help="resolve relative imports from DIR instead of the "
-                         "script's own directory, so a script can be packed "
-                         'from outside the tree it imports from')
+    ap.add_argument('--import-root', metavar='DIR', action='append',
+                    help="resolve imports from DIR instead of the script's own "
+                         "directory, so a script can be packed from outside "
+                         'the tree it imports from. Repeatable, and tried in '
+                         'order, which is how a board package reaches a shared '
+                         'one.')
     ap.add_argument('--lisp', action='store_true',
                     help='mark the container as LispBM instead of Lua')
     ap.add_argument('-v', '--verbose', action='store_true')

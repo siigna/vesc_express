@@ -295,6 +295,30 @@ static lbm_value ext_touch_read(lbm_value *args, lbm_uint argn) {
 			lbm_enc_u(point.track_id));
 }
 
+/*
+ * (touch-stats) -> (ok err last-err)
+ *
+ * touch-read reports a failed read as nil, the same as an untouched panel, so
+ * a script can poll unconditionally on a board whose touch did not come up.
+ * That makes a controller which has stopped answering look exactly like a
+ * finger that is not there, and on a board whose only input is touch that is
+ * the first thing worth knowing.
+ */
+static lbm_value ext_touch_stats(lbm_value *args, lbm_uint argn) {
+	(void)args; (void)argn;
+
+	uint32_t ok = 0, err = 0;
+	int last = 0;
+	touch_core_read_stats(&ok, &err, &last);
+
+	lbm_value res = ENC_SYM_NIL;
+	// Built back to front, since cons prepends.
+	res = lbm_cons(lbm_enc_i(last), res);
+	res = lbm_cons(lbm_enc_u32(err), res);
+	res = lbm_cons(lbm_enc_u32(ok), res);
+	return res;
+}
+
 static lbm_value ext_touch_read_all(lbm_value *args, lbm_uint argn) {
 	(void)args;
 	LBM_CHECK_ARGN(0);
@@ -396,6 +420,7 @@ void lispif_load_touch_extensions(void) {
 	lbm_add_extension("touch-load-cst836u", ext_touch_load_cst836u);
 	lbm_add_extension("touch-read", ext_touch_read);
 	lbm_add_extension("touch-read-all", ext_touch_read_all);
+	lbm_add_extension("touch-stats", ext_touch_stats);
 	lbm_add_extension("touch-delete", ext_touch_delete);
 	lbm_add_extension("touch-apply-transforms", ext_touch_apply_transforms);
 }

@@ -26,6 +26,9 @@
 
 #include <string.h>
 
+/* cppcheck-suppress constParameterPointer ; signature kept identical to the
+ * lisp ttf extensions that call it -- narrowing it here would mean editing the
+ * vendored caller as well, which is divergence for a style note. */
 bool buffer_get_font_preamble(uint8_t* buffer, uint16_t *version, int32_t *index) {
 
   uint16_t zero = buffer_get_uint16(buffer, index);
@@ -42,7 +45,7 @@ bool buffer_get_font_preamble(uint8_t* buffer, uint16_t *version, int32_t *index
 bool font_get_line_metrics(uint8_t *buffer, int32_t buffer_size, float *ascender, float *descender, float *line_gap ,int32_t index) {
 
   while(index < buffer_size) {
-    char *str = (char*)&buffer[index];
+    const char *str = (const char*)&buffer[index];
     if (strncmp(str, "lmtx", 4) == 0) {
       int32_t i = index + 5 + 4; // skip over string and size field;
       *ascender = buffer_get_float32_auto(buffer, &i);
@@ -59,7 +62,7 @@ bool font_get_line_metrics(uint8_t *buffer, int32_t buffer_size, float *ascender
 bool font_get_kerning_table_index(uint8_t *buffer, int32_t buffer_size, int32_t *res_index, int32_t index) {
 
   while (index < buffer_size) {
-    char *str = (char*)&buffer[index];
+    const char *str = (const char*)&buffer[index];
     if (strncmp(str, "kern", 4) == 0) {
       *res_index = index + 5 + 4;
       return true;
@@ -72,7 +75,7 @@ bool font_get_kerning_table_index(uint8_t *buffer, int32_t buffer_size, int32_t 
 
 bool font_get_glyphs_table_index(uint8_t *buffer, int32_t buffer_size, int32_t *res_index, uint32_t *num_codes, uint32_t *fmt, int32_t index) {
   while (index < buffer_size) {
-    char *str = (char*)&buffer[index];
+    const char *str = (const char*)&buffer[index];
     if (strncmp(str, "glyphs", 6) == 0) {
       int32_t i = index + 7 + 4;
       *num_codes = buffer_get_uint32(buffer,&i);
@@ -120,6 +123,7 @@ bool font_get_glyph(uint8_t *buffer,
   return false;
 }
 
+/* cppcheck-suppress constParameterPointer ; see the note above. */
 bool font_get_kerning(uint8_t *buffer, uint32_t left, uint32_t right, float *x_shift, float *y_shift, int32_t index) {
 
   uint32_t num_rows = buffer_get_uint32(buffer, &index);

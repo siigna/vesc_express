@@ -13,6 +13,8 @@ on:
     paths:
       - 'main/script/**'
       - 'main/lua/**'
+      - 'main/display/ttf_font.*'
+      - 'main/display/disp_backend.*'
       - 'tools/luapack.py'
       - 'tools/script_ext_coverage.py'
       - '.github/workflows/script-engine.yml'
@@ -100,7 +102,8 @@ jobs:
             -I main/lua -I main/script \
             -I main/lispBM/utils -I main/display \
             main/script/script_pack.c main/script/script_lua.c \
-            main/script/lua_vesc_disp.c main/display/disp_backend.c
+            main/script/lua_vesc_disp.c main/display/disp_backend.c \
+            main/display/ttf_font.c
       # Configuration lives in main/script/.clang-tidy so that running this
       # locally and running it here cannot disagree. The Annex K checker is
       # disabled there: it asks for memset_s, which no embedded toolchain in

@@ -32,8 +32,23 @@ LISP_RE = re.compile(r'lbm_add_extension\(\s*"([^"]+)"')
 LUA_RE = re.compile(r'\{\s*"([A-Za-z_][A-Za-z0-9_]*)"\s*,\s*l_[A-Za-z0-9_]+\s*\}')
 
 
+# Bindings deliberately not named after their lisp counterpart, because the
+# mechanical translation reads badly in Lua. Without these the binding exists
+# and the report calls it missing, which is worse than a slightly longer name
+# would have been -- so each entry is a decision, not a workaround.
+ALIASES = {
+    # The function already says BMS; get_bms_val stutters.
+    'get-bms-val': 'bms_val',
+    'set-bms-val': 'bms_set_val',
+    'send-bms-can': 'bms_send_can',
+    'set-bms-chg-allowed': 'bms_chg_allowed',
+}
+
+
 def lisp_to_lua(name: str) -> str:
     """The naming rule, in one place."""
+    if name in ALIASES:
+        return ALIASES[name]
     return name.replace('-', '_').replace('?', '_p').replace('!', '_x')
 
 

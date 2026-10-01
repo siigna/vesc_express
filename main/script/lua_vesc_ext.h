@@ -17,6 +17,9 @@ void lua_vesc_disp_register(script_lua_t *s);
 // must be registered after lua_vesc_disp_register.
 void lua_vesc_font_register(script_lua_t *s);
 
+// BMS, in lua_vesc_bms.c. Target only.
+void lua_vesc_bms_register(script_lua_t *s);
+
 // Touch, in lua_vesc_touch.c. Target only.
 void lua_vesc_touch_register(script_lua_t *s);
 

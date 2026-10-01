@@ -183,6 +183,7 @@ if(SCRIPT_ENGINE STREQUAL "lua")
         "script/lua_vesc_io.c"
         "script/lua_vesc_disp.c"
         "script/lua_vesc_disp_load.c"
+        "script/lua_vesc_touch.c"
         "script/luaif.c"
     )
 

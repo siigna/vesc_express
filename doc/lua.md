@@ -298,6 +298,45 @@ edge returns `nil` rather than a pixel from the next row.
 raising, so a script on a board whose display failed to initialise can carry
 on doing everything else.
 
+### Touch
+
+```lua
+vesc.touch_load_gt911(sda, scl, rst, int_pin, width, height, [hz])
+vesc.touch_transform(swap_xy, mirror_x, mirror_y)
+local x, y, strength = vesc.touch_read()   -- nil when nothing is touching
+vesc.touch_unload()
+vesc.touch_loaded()
+```
+
+`touch_read` returns `nil` rather than the last coordinates when nothing is
+touching, because a dash needs to know a finger has lifted and a stale pair
+looks exactly like a finger that has stopped moving.
+
+**Pass the panel's native size, not the rotated size.** On the Waveshare P4
+Touch LCD 4.3 the panel is 480x800 driven as 800x480, and the working
+configuration is:
+
+```lua
+vesc.touch_load_gt911(7, 8, 23, -1, 480, 800)   -- native bounds
+vesc.touch_transform(true, false, true)         -- swap_xy, mirror_y
+```
+
+`esp_lcd_touch` computes mirroring and clamping in the controller's own frame
+*before* any swap is applied, so handing it the rotated size makes the
+arithmetic correct only where the error cancels. That presents as touch that
+works in the middle of the screen and inverts towards the edges — which reads
+as a panel needing calibration rather than as a wrong parameter.
+
+`int_pin` can be `-1`, and on several boards it has to be: the GT911 samples
+that pin as its reset is released to choose between I2C address 0x5D and 0x14,
+so a board that pulls it up answers at the other address from the one the
+driver expects.
+
+Not bound: interrupt-driven touch events, multi-touch, and the four other
+controllers the lisp engine supports. Polling one point covers a dash, and a
+script polling at its own rate is easier to reason about than one woken by an
+interrupt.
+
 ### Events
 
 Handlers run on the engine task, one at a time. The frame or payload is

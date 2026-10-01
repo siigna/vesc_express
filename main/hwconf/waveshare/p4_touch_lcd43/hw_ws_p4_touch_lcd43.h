@@ -28,7 +28,16 @@
  *
  *   (disp-load-st7701 DISP_RST DISP_LANE_MBPS)
  *   (ext-disp-orientation 1)                 ; 480x800 native -> 800x480
- *   (touch-load-gt911 TOUCH_SDA TOUCH_SCL TOUCH_RST TOUCH_INT 800 480)
+ *   (touch-load-gt911 TOUCH_SDA TOUCH_SCL TOUCH_RST TOUCH_INT 480 800)
+ *
+ * Note the touch size is the panel's NATIVE 480x800, not the rotated 800x480,
+ * and the axes then need swapping with a mirror on one of them. Measured on
+ * the board: native bounds, swap_xy, mirror_y. esp_lcd_touch computes
+ * mirroring and clamping in the controller's own frame before any swap, so
+ * handing it the rotated size makes the arithmetic right only where the error
+ * cancels -- which presents as touch that is correct in the middle of the
+ * screen and inverted towards the edges, and is easy to mistake for a
+ * controller that needs calibrating.
  *
  * and the backlight with pwm-start on DISP_BACKLIGHT. That pin is active-LOW,
  * so the duty has to be inverted: (pwm-set-duty (- 1.0 level) chan).

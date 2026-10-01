@@ -13,6 +13,9 @@ void lua_vesc_io_register(script_lua_t *s);
 // dependencies.
 void lua_vesc_disp_register(script_lua_t *s);
 
+// Touch, in lua_vesc_touch.c. Target only.
+void lua_vesc_touch_register(script_lua_t *s);
+
 // Panel loaders, in lua_vesc_disp_load.c. Target only -- it names real
 // drivers, which build against ESP-IDF.
 void lua_vesc_disp_load_register(script_lua_t *s);

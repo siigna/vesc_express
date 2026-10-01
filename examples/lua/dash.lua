@@ -104,6 +104,14 @@ assert(vesc.disp_load("st7701", 27, 500), "panel did not load")
 vesc.disp_orientation(1)
 vesc.disp_clear(0x000000)
 
+-- Touch, if this board has it. Native panel bounds and then swap plus one
+-- mirror; see doc/lua.md for why the rotated size does not work here.
+local has_touch = pcall(function()
+    vesc.touch_load_gt911(7, 8, 23, -1, 480, 800)
+    vesc.touch_transform(true, false, true)
+end)
+print("touch", has_touch)
+
 -- One buffer per field, sized to that field, so a changed reading costs a
 -- render of its own box rather than of the screen.
 for _, f in ipairs(fields) do
@@ -127,9 +135,40 @@ end
 for _, f in ipairs(fields) do redraw(f, nil) end
 print("dash up")
 
+-- Which reading gets the large readout. Tapping cycles it, which is the
+-- whole interaction: a glove-friendly target is the whole screen.
+local big = 1
+
+local function relayout()
+    -- The large field swaps place with whichever was large before, so the
+    -- geometry stays fixed and only the contents move.
+    for i, f in ipairs(fields) do
+        f.last = nil
+        if i == big then
+            f.x, f.y, f.w, f.h, f.t = 40, 60, 54, 110, 12
+        else
+            f.x, f.y, f.w, f.h, f.t = 420, 60 + (i - 1) * 130, 34, 70, 8
+        end
+        f.buf = vesc.img_buffer("indexed16", f.w * 6 + f.t * 6, f.h)
+    end
+    vesc.disp_clear(0x000000)
+    vesc.disp_render(frame, 0, 0, PAL)
+end
+
+local was_down = false
 local frames = 0
 vesc.on_timer(100, function()
     frames = frames + 1
+
+    if has_touch then
+        local tx = vesc.touch_read()
+        if tx and not was_down then
+            big = big % #fields + 1
+            relayout()
+            print("large field is now", fields[big].name)
+        end
+        was_down = tx ~= nil
+    end
     local drawn = 0
     for _, f in ipairs(fields) do
         local v = f.read()

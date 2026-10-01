@@ -213,7 +213,20 @@ static int l_font_measure(lua_State *L) {
 	float w = 0.0f;
 	walk_text(f, str, NULL, NULL, &w);
 
-	lua_pushinteger(L, (lua_Integer)(w + 0.5f));
+	/*
+	 * Truncated, like the lisp's ttf-text-dims, which returns (uint32_t)w.
+	 *
+	 * This is the one that matters: every centring calculation in the dash is
+	 * (buffer_width - text_width) / 2, so a width one larger moves the text a
+	 * pixel left. Rounding here was the whole of the remaining difference
+	 * between the ported view_static and its reference -- 1105 pixels, all of
+	 * it text shifted by one.
+	 *
+	 * Height keeps its rounding: the lisp truncates a different quantity
+	 * there and the two agree on the fonts in use, so changing it would be a
+	 * guess rather than a match.
+	 */
+	lua_pushinteger(L, (lua_Integer)w);
 	lua_pushinteger(L, (lua_Integer)(f->ascender - f->descender + 0.5f));
 	return 2;
 }
@@ -258,7 +271,14 @@ static void draw_glyph(void *vctx, float gx, int32_t y_off, int32_t w,
 			uint32_t px = c->antialias && c->levels > 1
 					? c->colour + (cov - 1)
 					: c->colour;
-			putpixel(c->dst, c->x + (int)(gx + 0.5f) + (int)xx,
+			/*
+			 * Truncated, as the lisp does with (int)(x_n +
+			 * left_side_bearing). Rounding puts a glyph whose position lands
+			 * on a half pixel one to the right of where the lisp puts it,
+			 * which is a per-glyph difference rather than a whole-string
+			 * shift: in "HIGH" only the G moved.
+			 */
+			putpixel(c->dst, c->x + (int)gx + (int)xx,
 					c->y + (int)y_off + (int)yy, px);
 		}
 	}

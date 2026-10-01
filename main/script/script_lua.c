@@ -194,7 +194,21 @@ static int l_require(lua_State *L) {
 	char chunkname[64];
 	snprintf(chunkname, sizeof(chunkname), "@%s", name);
 
-	if (luaL_loadbuffer(L, (const char *)data, (size_t)data_len, chunkname) != LUA_OK) {
+	/*
+	 * Drop the terminator the packer appends.
+	 *
+	 * Every payload in the container carries a trailing NUL -- VESC Tool's
+	 * "pad with 0 in case it is a text file" -- because an imported lisp file
+	 * is handed to a reader that needs one. Lua's lexer does not: it treats
+	 * the NUL as a stray byte and refuses the chunk. The byte belongs to the
+	 * container format rather than to the module, so it comes off here.
+	 */
+	size_t src_len = (size_t)data_len;
+	if (src_len > 0 && data[src_len - 1] == '\0') {
+		src_len--;
+	}
+
+	if (luaL_loadbuffer(L, (const char *)data, src_len, chunkname) != LUA_OK) {
 		return luaL_error(L, "require '%s': %s", name, lua_tostring(L, -1));
 	}
 

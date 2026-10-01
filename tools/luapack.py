@@ -23,6 +23,11 @@ The flags word is why a single package store can serve both engines: VESC Tool
 has always written zero there and the firmware never read it, so bit 0 marks
 the language without a new command id or a change to the container.
 
+With --lisp it packs a LispBM script instead, walking (import "path" 'sym)
+lines and keying the table by symbol. That is enough to package a real lisp
+project from the command line; imports that come from VESC Tool's package
+archive (pkg@://...) cannot be resolved and are reported.
+
 Usage:
     luapack.py main.lua -o main.luapkg
     luapack.py main.lua --print-imports
@@ -155,6 +160,62 @@ def module_path(base_dir: str, name: str) -> str:
         "under %s)" % (name, rel, rel, base_dir))
 
 
+# (import "path" 'symbol) -- the lisp form. The import table is keyed by the
+# SYMBOL, not the path: the firmware's ext_import compares the table entry
+# against the name of the destination symbol. That is also what makes
+# --asset work for a lisp script.
+_LISP_IMPORT = re.compile(r"""\(\s*import\s+"([^"]+)"\s+'([^\s)]+)\s*\)""")
+
+
+def collect_lisp(main_path: str, verbose=False):
+    """Read a lisp script and the files it imports.
+
+    Not recursive: lisp imports bind a symbol to a file's bytes, and the
+    importing script decides when to evaluate it, so an imported file's own
+    imports are its business rather than something to resolve here.
+    """
+    base_dir = os.path.dirname(os.path.abspath(main_path)) or '.'
+    with open(main_path, 'r', encoding='utf-8') as f:
+        src = f.read()
+
+    order = []
+    payloads = {}
+    warnings = []
+
+    for path, sym in _LISP_IMPORT.findall(src):
+        if sym in payloads:
+            warnings.append("symbol %s imported more than once; keeping the "
+                            "first" % sym)
+            continue
+
+        if path.startswith('pkg@') or path.startswith('pkg::'):
+            # These resolve out of VESC Tool's downloaded package archive,
+            # which is not available here. Reported rather than guessed at:
+            # the script will fail at the point it evaluates that symbol, and
+            # knowing which one is the difference between a quick fix and a
+            # hunt.
+            warnings.append("%s imports %s from the package archive, which "
+                            "cannot be resolved here. Supply it with "
+                            "--asset %s=<file> (the import table is keyed by "
+                            "symbol, so that is all it takes)" % (sym, path, sym))
+            continue
+
+        full = os.path.normpath(os.path.join(base_dir, path))
+        if not os.path.isfile(full):
+            raise FileNotFoundError("%s imports %s, which is not there "
+                                    "(looked at %s)" % (sym, path, full))
+
+        with open(full, 'rb') as f:
+            payloads[sym] = f.read()
+        order.append(sym)
+        if verbose:
+            print("  import   %-24s %-44s %d bytes"
+                  % (sym, os.path.relpath(full, base_dir), len(payloads[sym])),
+                  file=sys.stderr)
+
+    return src, order, payloads, warnings
+
+
 def read_assets(specs, verbose=False):
     """Read --asset NAME=PATH pairs into the import table.
 
@@ -227,63 +288,68 @@ def collect(main_path: str, verbose=False):
 
 
 def build(main_src: str, order, modules, lang_flag=FLAG_LANG_LUA) -> bytes:
-    """Assemble the container."""
+    """Assemble the container, byte for byte as CodeLoader::lispPackImports does.
+
+    Three details here are not decoration, and getting any of them wrong
+    produces a container that uploads cleanly and then misbehaves:
+
+      - Every payload gets a NUL appended. VESC Tool's comment is "pad with 0
+        in case it is a text file", and it matters: an imported lisp file is
+        handed to read-eval-program as a shared array, and without a
+        terminator the reader runs off the end. That showed up as a read_error
+        partway through a file that was perfectly well-formed.
+
+      - Payload offsets are aligned to four bytes, "in case this is loaded as
+        code", with the padding inserted into the stream.
+
+      - The stored size field is two less than the counted region's length.
+
+    The offsets are relative to the start of the source, which is where the
+    firmware's pointer begins.
+    """
     if len(order) > MAX_IMPORTS:
-        raise ValueError("%d modules exceeds the %d the firmware accepts"
+        raise ValueError("%d entries exceeds the %d the firmware accepts"
                          % (len(order), MAX_IMPORTS))
 
-    body = bytearray()
-    body += struct.pack('>H', lang_flag)
+    def as_bytes(v):
+        # Modules and lisp imports arrive as text, assets as bytes.
+        return v if isinstance(v, bytes) else v.encode('utf-8')
 
     src_bytes = main_src.encode('utf-8')
     if b'\0' in src_bytes:
-        raise ValueError("the script contains a NUL byte, which terminates the "
-                         "source field")
+        raise ValueError("the script contains a NUL byte, which terminates "
+                         "the source field")
+
+    body = bytearray()
+    body += struct.pack('>H', lang_flag)
     body += src_bytes + b'\0'
-
-    # The table has to be laid out before the payloads so offsets are known,
-    # and an entry's size depends only on its name length.
-    table_start = len(body)
-    table_size = 2
-    for name in order:
-        table_size += len(name.encode('utf-8')) + 1 + 4 + 4
-
-    payload_at = table_start + table_size
-    offsets = {}
-    cursor = payload_at
-    def as_bytes(v):
-        # Modules arrive as text, assets as bytes. Everything in the table is
-        # bytes on the wire.
-        return v if isinstance(v, bytes) else v.encode('utf-8')
-
-    for name in order:
-        payload = as_bytes(modules[name])
-        offsets[name] = (cursor, len(payload))
-        cursor += len(payload)
-
     body += struct.pack('>H', len(order))
+
+    # Every payload carries a trailing NUL, and its recorded length includes it.
+    payloads = {name: as_bytes(modules[name]) + b'\0' for name in order}
+
+    table_size = sum(len(name.encode('utf-8')) + 9 for name in order)
+
+    # Mirrors `file_offset = vb.size() + file_table_size - 2` once the count
+    # has been written.
+    file_offset = len(body) + table_size - 2
+
     for name in order:
-        off, length = offsets[name]
-        # Offsets are relative to the start of the source, which is where the
-        # firmware's pointer begins -- header_size is already excluded.
+        while file_offset % 4 != 0:
+            file_offset += 1
         body += name.encode('utf-8') + b'\0'
-        body += struct.pack('>i', off - 2)
-        body += struct.pack('>i', length)
+        body += struct.pack('>i', file_offset)
+        body += struct.pack('>i', len(payloads[name]))
+        file_offset += len(payloads[name])
 
     for name in order:
-        body += as_bytes(modules[name])
+        while (len(body) - 2) % 4 != 0:
+            body += b'\0'
+        body += payloads[name]
 
-    # The size field is len(body) - 2, not len(body).
-    #
-    # That is what VESC Tool writes (CodeLoader::lispUpload does
-    # vbAppendUint32(vb.size() - 2) where vb already begins with the flags
-    # word) and the firmware's code_check validates size and crc together, so
-    # being two bytes out makes the check fail and the engine run nothing at
-    # all, silently.
-    #
-    # This was wrong here and went unnoticed because the Lua loader reads the
-    # partition size rather than this field, so only a LispBM container
-    # exposed it -- as a script that uploaded cleanly and never started.
+    # The size field is len(body) - 2, not len(body): that is what VESC Tool
+    # writes, and the firmware's code_check validates size and crc together,
+    # so being two bytes out makes the engine run nothing at all, silently.
     blob = (struct.pack('>I', len(body) - 2)
             + struct.pack('>H', crc16(bytes(body)))
             + bytes(body))
@@ -389,16 +455,21 @@ def selftest() -> int:
         ok("import count", count == 2)
 
         found = {}
+        offsets_seen = []
         for _ in range(count):
             end = base.index(b'\0', ind)
             name = base[ind:end].decode()
             ind = end + 1
             off, length = struct.unpack('>ii', base[ind:ind + 8])
             ind += 8
+            offsets_seen.append(off)
             found[name] = base[off:off + length].decode()
 
-        ok("mod payload", found.get('mod') == modules['mod'])
-        ok("pkg.sub payload", found.get('pkg.sub') == modules['pkg.sub'])
+        # Payloads carry a trailing NUL, as VESC Tool writes them.
+        ok("mod payload", found.get('mod') == modules['mod'] + '\0')
+        ok("pkg.sub payload", found.get('pkg.sub') == modules['pkg.sub'] + '\0')
+        ok("payload offsets are 4-byte aligned",
+           all(o % 4 == 0 for o in offsets_seen))
 
         # A missing module is an error with a useful message, not a traceback.
         with open(os.path.join(d, 'bad.lua'), 'w') as f:
@@ -442,13 +513,23 @@ def main():
     if not args.script:
         ap.error('a script is required unless --selftest is given')
 
-    main_src, order, modules, warnings = collect(args.script, args.verbose)
+    if args.lisp:
+        main_src, order, modules, warnings = collect_lisp(args.script,
+                                                          args.verbose)
+    else:
+        main_src, order, modules, warnings = collect(args.script, args.verbose)
 
     try:
         asset_order, assets = read_assets(args.asset, args.verbose)
     except (ValueError, OSError) as e:
         print("error: %s" % e, file=sys.stderr)
         return 1
+    # An import the walker could not resolve is not a problem if --asset
+    # supplies it, so drop those warnings rather than telling the user to do
+    # what they have already done.
+    warnings = [w for w in warnings
+                if not any(w.startswith(a + " imports ") for a in asset_order)]
+
     for name in asset_order:
         if name in modules:
             print("error: asset %s collides with a bundled module" % name,

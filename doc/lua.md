@@ -30,6 +30,25 @@ language the source is, which is what lets one package store hold both.
 A `require` whose argument is not a literal string cannot be bundled —
 `luapack.py` reports it rather than guessing, and it will fail at runtime.
 
+## Packing a LispBM project too
+
+`luapack.py --lisp` packs a lisp script, walking `(import "path" 'sym)` lines
+and keying the table by symbol — which is what the firmware matches on. That
+is enough to package a real lisp project from the command line:
+
+```
+tools/luapack.py dash_p4/main.lisp -o dash.bin --lisp     --asset code-server=lib_code_server/code_server.lisp
+```
+
+Imports written as `pkg@://...` come from VESC Tool's downloaded package
+archive and cannot be resolved here; the tool names the symbol and `--asset`
+fills it in, since the table is keyed by symbol either way.
+
+The container is byte-for-byte what `CodeLoader::lispPackImports` produces,
+including two details that are easy to miss and produce a container that
+uploads cleanly then misbehaves: every payload carries an appended NUL, and
+payload offsets are aligned to four bytes.
+
 ## Talking to a board without VESC Tool
 
 `tools/vesc_script.py` uploads, runs and watches scripts over serial:

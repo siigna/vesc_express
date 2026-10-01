@@ -49,6 +49,21 @@ typedef enum {
 	SCRIPT_EV_APP_DATA,	// COMM_CUSTOM_APP_DATA
 	SCRIPT_EV_TIMER,	// Periodic, posted by the engine task itself
 	SCRIPT_EV_TOUCH,	// Contact state or position changed
+	/*
+	 * A REPL expression is waiting to be evaluated.
+	 *
+	 * Carries nothing: the text lives in a buffer the adapter owns, because
+	 * an expression is up to 512 bytes and the payload here is 64 -- and
+	 * sizing the payload for the REPL would cost that much in every queued
+	 * CAN frame.
+	 *
+	 * It is an event at all because the interpreter must not run on the
+	 * task that received the packet. The comm task has a 3 KB stack, and
+	 * loading and calling a chunk on it after 1.3 KB of local buffers is
+	 * what made the Lua REPL silently do nothing while the lisp one, which
+	 * hands work to its own evaluator thread, worked fine.
+	 */
+	SCRIPT_EV_REPL,
 } script_event_type_t;
 
 /*

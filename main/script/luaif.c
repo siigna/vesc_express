@@ -193,6 +193,11 @@ static bool want_event(script_event_type_t type) {
 		return m_want_timer != 0;
 	case SCRIPT_EV_TOUCH:
 		return m_want_touch != 0;
+	case SCRIPT_EV_REPL:
+		// Not a script-registered handler: a person typed it, so it is always
+		// wanted. Gating it on a subscription would make the REPL work only
+		// for scripts that had asked for something else.
+		return true;
 	default:
 		return false;
 	}
@@ -206,6 +211,20 @@ static bool want_event(script_event_type_t type) {
  * that is the difference between a script costing nothing and a script
  * costing every frame.
  */
+/*
+ * The REPL expression waiting to be evaluated, and its length.
+ *
+ * One at a time. A second expression arriving before the first has run
+ * overwrites it, which the 500 ms rate limiter below already makes unlikely
+ * and which is the right trade: the alternative is a queue of stale
+ * expressions evaluated after the person has moved on.
+ *
+ * Written by the comm task and read by the engine task. The flag is set last
+ * and cleared first, so the engine never reads a half-copied expression.
+ */
+static char m_repl_expr[512];
+static volatile bool m_repl_pending;
+
 static void event_post(script_event_type_t type, uint32_t id,
 		const uint8_t *data, int len) {
 	if (!m_events || !want_event(type)) {
@@ -440,6 +459,75 @@ static void run_loaded(void) {
  * at most until the timer is next due, so a 20 ms timer is served to within a
  * tick without polling at 20 ms when nothing is registered.
  */
+/*
+ * Evaluate the pending REPL expression. Engine task only, with the lock held
+ * by the caller.
+ *
+ * Bare expressions are the point of a REPL, so the chunk is tried wrapped in
+ * a return first and run as a statement if that does not compile. That is
+ * what the standalone interpreter does, and without it `1 + 1` would be a
+ * syntax error.
+ */
+static void repl_eval(void) {
+	if (!m_repl_pending) {
+		return;
+	}
+
+	// Copied under the flag, then the flag cleared, so a second expression
+	// arriving mid-evaluation is not half-read.
+	char expr[sizeof(m_repl_expr)];
+	strncpy(expr, m_repl_expr, sizeof(expr) - 1);
+	expr[sizeof(expr) - 1] = '\0';
+	m_repl_pending = false;
+
+	if (!m_engine && !engine_open()) {
+		commands_printf_lisp("no interpreter");
+		return;
+	}
+
+	lua_State *L = script_lua_state(m_engine);
+	if (!L) {
+		commands_printf_lisp("no interpreter");
+		return;
+	}
+
+	char wrapped[sizeof(expr) + 8];
+	snprintf(wrapped, sizeof(wrapped), "return %s", expr);
+
+	if (luaL_loadbuffer(L, wrapped, strlen(wrapped), "=repl") != LUA_OK) {
+		// Not a bare expression. Drop that attempt's error message and
+		// compile the text as written, which is how a chunk with its own
+		// statements and return gets in.
+		lua_pop(L, 1);
+
+		if (luaL_loadbuffer(L, expr, strlen(expr), "=repl") != LUA_OK) {
+			commands_printf_lisp("Lua error: %s", lua_tostring(L, -1));
+			lua_pop(L, 1);
+			return;
+		}
+	}
+
+	/*
+	 * Every result, not just the first. A chunk that ends in a return is as
+	 * much a REPL answer as a bare expression, and running it through a path
+	 * that discarded the value printed nothing at all -- which read as the
+	 * command having silently failed.
+	 */
+	int base = lua_gettop(L) - 1;
+	if (lua_pcall(L, 0, LUA_MULTRET, 0) != LUA_OK) {
+		commands_printf_lisp("Lua error: %s", lua_tostring(L, -1));
+		lua_pop(L, 1);
+		return;
+	}
+
+	int nres = lua_gettop(L) - base;
+	for (int i = 1;i <= nres;i++) {
+		commands_printf_lisp("%s", luaL_tolstring(L, base + i, NULL));
+		lua_pop(L, 1);	// the string luaL_tolstring pushed
+	}
+	lua_pop(L, nres);
+}
+
 static void drain_events(void) {
 	// From the mirror, not from the engine: this runs before the lock is
 	// taken, and the engine may be closed between a read and a use.
@@ -456,11 +544,27 @@ static void drain_events(void) {
 		wait = 1;
 	}
 
+	// Polled as well as queued: event_post drops when the queue is full, and
+	// an expression a person typed should arrive late rather than not at all.
+	if (m_repl_pending) {
+		lock();
+		m_running = true;
+		repl_eval();
+		m_running = false;
+		unlock();
+	}
+
 	script_event_t ev;
 	if (m_events && xQueueReceive(m_events, &ev, wait) == pdTRUE) {
 		char err[256];
 		lock();
-		if (m_engine) {
+		if (ev.type == SCRIPT_EV_REPL) {
+			// Not a script handler, so it does not go through dispatch: there
+			// is no _ev_repl for a script to register.
+			m_running = true;
+			repl_eval();
+			m_running = false;
+		} else if (m_engine) {
 			m_running = true;
 			bool ok = script_lua_dispatch(m_engine, &ev, err, sizeof(err));
 			m_running = false;
@@ -815,6 +919,15 @@ void lispif_process_cmd(unsigned char *data, unsigned int len,
 
 	case COMM_LISP_REPL_CMD: {
 		/*
+		 * Queued for the engine task, not evaluated here.
+		 *
+		 * This runs on the task that received the packet, whose stack is
+		 * 3 KB. Loading and calling a Lua chunk on it -- after the expression
+		 * buffers this used to put there -- overflowed it, and the symptom
+		 * was a REPL that did nothing at all while every other COMM_LISP_*
+		 * command worked. The lisp engine never had the problem because
+		 * LispBM hands the work to its own evaluator thread.
+		 *
 		 * Rate limited the way the lisp engine limits it. VESC Tool's REPL
 		 * sends on every keystroke in some versions, and each command here
 		 * compiles a chunk.
@@ -826,57 +939,15 @@ void lispif_process_cmd(unsigned char *data, unsigned int len,
 		}
 		last = now;
 
-		if (!m_engine) {
-			lock();
-			if (!engine_open()) {
-				unlock();
-				break;
-			}
-			unlock();
-		}
+		size_t n = len < sizeof(m_repl_expr) - 1 ? len : sizeof(m_repl_expr) - 1;
+		memcpy(m_repl_expr, data, n);
+		m_repl_expr[n] = '\0';
+		m_repl_pending = true;
 
-		char expr[512];
-		size_t n = len < sizeof(expr) - 1 ? len : sizeof(expr) - 1;
-		memcpy(expr, data, n);
-		expr[n] = '\0';
-
-		/*
-		 * Bare expressions are the point of a REPL, so try the chunk wrapped
-		 * in a return first and fall back to running it as a statement. That
-		 * is what the standalone interpreter does, and without it `1 + 1`
-		 * would be a syntax error.
-		 */
-		char wrapped[540];
-		snprintf(wrapped, sizeof(wrapped), "return %s", expr);
-
-		char err[256];
-		lock();
-		lua_State *L = script_lua_state(m_engine);
-		bool ok = false;
-		if (L && luaL_loadbuffer(L, wrapped, strlen(wrapped), "=repl") == LUA_OK) {
-			if (lua_pcall(L, 0, 1, 0) == LUA_OK) {
-				if (!lua_isnil(L, -1)) {
-					commands_printf_lisp("%s", luaL_tolstring(L, -1, NULL));
-					lua_pop(L, 1);
-				}
-				lua_pop(L, 1);
-				ok = true;
-			} else {
-				commands_printf_lisp("Lua error: %s", lua_tostring(L, -1));
-				lua_pop(L, 1);
-				ok = true;
-			}
-		} else {
-			if (L) {
-				lua_pop(L, 1);	// the failed chunk's error message
-			}
-			ok = script_lua_run(m_engine, expr, (int32_t)n, "=repl",
-					err, sizeof(err));
-			if (!ok) {
-				commands_printf_lisp("Lua error: %s", err);
-			}
-		}
-		unlock();
+		// An empty queue slot is not required: the engine task also polls the
+		// flag each pass, so a full queue delays the expression rather than
+		// losing it.
+		event_post(SCRIPT_EV_REPL, 0, NULL, 0);
 	} break;
 
 	default:

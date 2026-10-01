@@ -48,7 +48,24 @@ typedef enum {
 	SCRIPT_EV_CAN2_EID,	// Extended id, bus 2
 	SCRIPT_EV_APP_DATA,	// COMM_CUSTOM_APP_DATA
 	SCRIPT_EV_TIMER,	// Periodic, posted by the engine task itself
+	SCRIPT_EV_TOUCH,	// Contact state or position changed
 } script_event_type_t;
+
+/*
+ * Payload of a SCRIPT_EV_TOUCH, carried in script_event_t.data.
+ *
+ * A struct rather than four packed fields in id, because the touch core
+ * already has the point in this shape and the queue copies bytes either way.
+ * pressed is the state being reported; the coordinates are meaningless when
+ * it is zero, and the core zeroes them there.
+ */
+typedef struct {
+	uint8_t pressed;
+	uint8_t track_id;
+	uint16_t x;
+	uint16_t y;
+	uint16_t strength;
+} script_event_touch_t;
 
 typedef struct {
 	uint8_t type;		// script_event_type_t

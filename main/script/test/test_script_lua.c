@@ -459,6 +459,59 @@ int main(int argc, char **argv) {
 		script_lua_close(s);
 	}
 
+	// Touch.
+	{
+		script_lua_t *s = open_engine(0, NULL);
+		script_lua_install_events(s);
+
+		ok("no touch wanted by default", !script_lua_wants(s, SCRIPT_EV_TOUCH));
+		ok("touch handler registers", run(s,
+				"down = nil tx = -1 ty = -1 tstr = -1 tid = -1 n = 0\n"
+				"vesc.on_touch(function(p, x, y, st, id)\n"
+				"  down = p tx = x ty = y tstr = st tid = id n = n + 1\n"
+				"end)", NULL, 0));
+		ok("touch wanted once registered", script_lua_wants(s, SCRIPT_EV_TOUCH));
+
+		script_event_touch_t pt = {
+				.pressed = 1, .track_id = 3, .x = 120, .y = 340, .strength = 77,
+		};
+		script_event_t ev = {.type = SCRIPT_EV_TOUCH, .len = sizeof(pt)};
+		memcpy(ev.data, &pt, sizeof(pt));
+		ok("press dispatched", script_lua_dispatch(s, &ev, NULL, 0));
+		ok("press arrived with all five arguments", run(s,
+				"assert(down == true and tx == 120 and ty == 340 and "
+				"tstr == 77 and tid == 3)", NULL, 0));
+
+		// A release carries zeroes, and pressed is how a handler tells the
+		// difference between a release and a touch at the origin.
+		script_event_touch_t up = {0};
+		memcpy(ev.data, &up, sizeof(up));
+		ok("release dispatched", script_lua_dispatch(s, &ev, NULL, 0));
+		ok("release arrived as false", run(s,
+				"assert(down == false and tx == 0 and ty == 0 and n == 2)", NULL, 0));
+
+		// A producer that did not fill the struct is a bug; dispatch drops it
+		// rather than handing the script whatever was in the queue.
+		script_event_t stub = {.type = SCRIPT_EV_TOUCH, .len = 2};
+		ok("short payload dropped", script_lua_dispatch(s, &stub, NULL, 0));
+		ok("short payload did not call the handler", run(s, "assert(n == 2)", NULL, 0));
+
+		// An error in the handler is reported, as for every other event.
+		ok("failing handler registers", run(s,
+				"vesc.on_touch(function() error('no') end)", NULL, 0));
+		memcpy(ev.data, &pt, sizeof(pt));
+		char err[128] = {0};
+		ok("handler error reported",
+				!script_lua_dispatch(s, &ev, err, sizeof(err)));
+		ok("handler error names the message", strstr(err, "no") != NULL);
+
+		ok("touch handler clears", run(s, "vesc.on_touch(nil)", NULL, 0));
+		ok("touch not wanted after clearing",
+				!script_lua_wants(s, SCRIPT_EV_TOUCH));
+
+		script_lua_close(s);
+	}
+
 	// An unknown event type is ignored rather than mis-dispatched.
 	{
 		script_lua_t *s = open_engine(0, NULL);

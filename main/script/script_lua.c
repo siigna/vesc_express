@@ -50,6 +50,7 @@ struct script_lua {
 	volatile uint8_t have_can;
 	volatile uint8_t have_app_data;
 	volatile uint8_t have_timer;
+	volatile uint8_t have_touch;
 };
 
 /*
@@ -435,10 +436,11 @@ static const char *const EV_KEYS[] = {
 	[SCRIPT_EV_CAN2_EID] = "_ev_can",
 	[SCRIPT_EV_APP_DATA] = "_ev_app_data",
 	[SCRIPT_EV_TIMER] = "_ev_timer",
+	[SCRIPT_EV_TOUCH] = "_ev_touch",
 };
 
 static const char *ev_key(int type) {
-	if (type <= SCRIPT_EV_NONE || type > SCRIPT_EV_TIMER) {
+	if (type <= SCRIPT_EV_NONE || type > SCRIPT_EV_TOUCH) {
 		return NULL;
 	}
 	return EV_KEYS[type];
@@ -464,6 +466,18 @@ static int set_handler(lua_State *L, const char *key, size_t flag_offset) {
 // vesc.on_can(function(id, data, is_ext, bus) end) -- nil to unregister.
 static int l_on_can(lua_State *L) {
 	return set_handler(L, "_ev_can", offsetof(struct script_lua, have_can));
+}
+
+/*
+ * vesc.on_touch(function(pressed, x, y, strength, track_id) end)
+ *
+ * Fires on a press, a release, and movement past a few pixels while held --
+ * the touch core decides, and rate limits it. The coordinates are zero on a
+ * release, so a handler that only cares where the finger went can test
+ * pressed first.
+ */
+static int l_on_touch(lua_State *L) {
+	return set_handler(L, "_ev_touch", offsetof(struct script_lua, have_touch));
 }
 
 // vesc.on_app_data(function(data) end)
@@ -513,6 +527,7 @@ void script_lua_install_events(script_lua_t *s) {
 	static const luaL_Reg ev_fns[] = {
 		{"on_can", l_on_can},
 		{"on_app_data", l_on_app_data},
+		{"on_touch", l_on_touch},
 		{"on_timer", l_on_timer},
 		{NULL, NULL},
 	};
@@ -542,6 +557,8 @@ bool script_lua_wants(const script_lua_t *s, int type) {
 		return s->have_app_data != 0;
 	case SCRIPT_EV_TIMER:
 		return s->have_timer != 0;
+	case SCRIPT_EV_TOUCH:
+		return s->have_touch != 0;
 	default:
 		return false;
 	}
@@ -599,6 +616,25 @@ bool script_lua_dispatch(script_lua_t *s, const script_event_t *ev,
 	case SCRIPT_EV_TIMER:
 		nargs = 0;
 		break;
+
+	case SCRIPT_EV_TOUCH: {
+		// Short payload means a producer that did not fill the struct, which
+		// is a bug rather than something to guess at.
+		if (ev->len < sizeof(script_event_touch_t)) {
+			lua_pop(L, 1);
+			return true;
+		}
+
+		script_event_touch_t t;
+		memcpy(&t, ev->data, sizeof(t));
+		lua_pushboolean(L, t.pressed);
+		lua_pushinteger(L, t.x);
+		lua_pushinteger(L, t.y);
+		lua_pushinteger(L, t.strength);
+		lua_pushinteger(L, t.track_id);
+		nargs = 5;
+		break;
+	}
 
 	default:
 		lua_pop(L, 1);

@@ -41,6 +41,7 @@
 #include "script_lua.h"
 #include "script_pack.h"
 #include "script_event.h"
+#include "touch_core.h"
 #include "lua_vesc_ext.h"
 
 #include "lispif.h"
@@ -142,6 +143,7 @@ static volatile uint32_t m_dropped = 0;
 static volatile uint8_t m_want_can = 0;
 static volatile uint8_t m_want_app = 0;
 static volatile uint8_t m_want_timer = 0;
+static volatile uint8_t m_want_touch = 0;
 static volatile uint32_t m_timer_period = 0;
 
 // Called only from the engine task, with the engine alive.
@@ -150,11 +152,13 @@ static void refresh_wants(void) {
 		m_want_can = script_lua_wants(m_engine, SCRIPT_EV_CAN_SID) ? 1 : 0;
 		m_want_app = script_lua_wants(m_engine, SCRIPT_EV_APP_DATA) ? 1 : 0;
 		m_want_timer = script_lua_wants(m_engine, SCRIPT_EV_TIMER) ? 1 : 0;
+		m_want_touch = script_lua_wants(m_engine, SCRIPT_EV_TOUCH) ? 1 : 0;
 		m_timer_period = script_lua_timer_period(m_engine);
 	} else {
 		m_want_can = 0;
 		m_want_app = 0;
 		m_want_timer = 0;
+		m_want_touch = 0;
 		m_timer_period = 0;
 	}
 }
@@ -170,6 +174,8 @@ static bool want_event(script_event_type_t type) {
 		return m_want_app != 0;
 	case SCRIPT_EV_TIMER:
 		return m_want_timer != 0;
+	case SCRIPT_EV_TOUCH:
+		return m_want_touch != 0;
 	default:
 		return false;
 	}
@@ -208,6 +214,33 @@ static void event_post(script_event_type_t type, uint32_t id,
 	if (xQueueSend(m_events, &ev, 0) != pdTRUE) {
 		m_dropped++;
 	}
+}
+
+/*
+ * Touch sink for the driver core.
+ *
+ * Runs on the core's event task, so it is a producer like the CAN one: it
+ * copies and returns, and never reaches for the interpreter. The core calls
+ * touch_wants first and skips the read entirely when nothing is subscribed,
+ * so an unregistered handler costs one flag test per poll rather than an I2C
+ * transaction.
+ */
+static bool touch_wants(void) {
+	return m_want_touch != 0;
+}
+
+static void touch_sink(bool pressed, const touch_point_t *point, touch_part_t part) {
+	(void)part;
+
+	script_event_touch_t t = {
+			.pressed = pressed ? 1 : 0,
+			.track_id = pressed ? point->track_id : 0,
+			.x = pressed ? point->x : 0,
+			.y = pressed ? point->y : 0,
+			.strength = pressed ? point->strength : 0,
+	};
+
+	event_post(SCRIPT_EV_TOUCH, 0, (const uint8_t *)&t, (int)sizeof(t));
 }
 
 uint32_t luaif_events_dropped(void) {
@@ -491,6 +524,11 @@ void lispif_init(void) {
 	// The engine task exists for the life of the firmware; starting and
 	// stopping a script means opening and closing an interpreter inside it,
 	// not creating and destroying a task, so a script cannot leak one.
+	// Registered once, for the life of the firmware. The core only calls it
+	// while a script has a handler, and the want flag is cleared when the
+	// engine closes, so there is nothing to tear down per script.
+	touch_core_set_event_cb(touch_sink, touch_wants);
+
 	xTaskCreate(lua_task, "lua", LUA_TASK_STACK, NULL, LUA_TASK_PRIO, &m_task);
 
 	m_start_req = true;

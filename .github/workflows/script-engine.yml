@@ -173,6 +173,32 @@ jobs:
           if present build_lua/vesc_express.bin; then
             echo "lua build contains ext-disp-cmd: the guard is too narrow"; exit 1
           fi
+      # Touch is one driver core with two sets of bindings, so the same
+      # mistake is possible there: the core must be in both binaries while
+      # each engine's own binding names stay on their own side. A core that
+      # fell out of the lua build would not fail to link -- the bindings
+      # would simply be gone -- so check the symbol, not just the strings.
+      - name: Confirm the touch core is shared and the bindings are not
+        shell: bash
+        run: |
+          . $IDF_PATH/export.sh
+          set -e
+          sym() { nm "$1" | grep -q " T touch_core_load_i2c"; }
+          str() { tr -c '[:print:]' '\n' < "$1" | grep -qx "$2"; }
+          for b in build_lisp build_lua; do
+            if ! sym $b/vesc_express.elf; then
+              echo "$b has no touch core"; exit 1
+            fi
+          done
+          if ! str build_lisp/vesc_express.bin 'touch-load-gt911'; then
+            echo "lisp build lost touch-load-gt911"; exit 1
+          fi
+          if str build_lua/vesc_express.bin 'touch-load-gt911'; then
+            echo "lua build has the lisp touch bindings"; exit 1
+          fi
+          if ! str build_lua/vesc_express.bin 'touch_load_cst9217'; then
+            echo "lua build lost its touch bindings"; exit 1
+          fi
 
   target-compile:
     name: compile for esp32s3

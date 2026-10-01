@@ -302,6 +302,11 @@ static void engine_close(void) {
 static bool engine_open(void) {
 	engine_close();
 
+	// A prefix set by vesc.set_print_prefix belongs to the script that set
+	// it. Without this the next script inherits it, which showed up as one
+	// script's output arriving tagged with the previous one's name.
+	print_prefix[0] = '\0';
+
 	script_lua_cfg_t cfg = {
 		.mem_limit = LUA_MEM_LIMIT,
 		.print = engine_print,
@@ -330,6 +335,7 @@ static bool engine_open(void) {
 	lua_vesc_bms_register(m_engine);
 	lua_vesc_wifi_register(m_engine);
 	lua_vesc_conf_register(m_engine);
+	lua_vesc_color_register(m_engine);
 	script_lua_install_events(m_engine);
 	return true;
 }

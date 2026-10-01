@@ -14,6 +14,7 @@
 #include "../script_pack.h"
 #include "../../display/disp_backend.h"
 #include "../lua_vesc_ext.h"
+#include "../lua_vesc_ext.h"
 
 #include <stdio.h>
 #include <string.h>
@@ -256,8 +257,15 @@ int main(int argc, char **argv) {
 	{
 		script_lua_t *s = open_engine(0, NULL);
 		stop_after_ticks = -1;
+		/*
+		 * 20000, not 200000. This build is LUA_32BITS, so a lua_Integer is a
+		 * signed 32-bit int: summing to 200000 reaches 2e10, wraps, and the
+		 * assert on a positive total fails. The larger bound only ever passed
+		 * because a stale lua_objs.a had been built with 64-bit integers,
+		 * which is the opposite of what this harness is for.
+		 */
 		ok("bounded loop completes",
-				run(s, "local n = 0 for i=1,200000 do n = n + i end assert(n > 0)",
+				run(s, "local n = 0 for i=1,20000 do n = n + i end assert(n == 200010000)",
 					NULL, 0));
 		script_lua_close(s);
 	}
@@ -354,6 +362,78 @@ int main(int argc, char **argv) {
 		lua_getglobal(L, "vesc");
 		ok("vesc table exists", lua_istable(L, -1));
 		lua_pop(L, 1);
+		script_lua_close(s);
+	}
+
+	/*
+	 * Colours. Worth testing through Lua rather than against color_core
+	 * directly, because the interesting part is the binding: this build is
+	 * LUA_32BITS, so a lua_Integer is a signed 32-bit int and a colour with a
+	 * high white channel is a negative number. It has to round-trip anyway.
+	 */
+	{
+		script_lua_t *s = open_engine(0, NULL);
+		lua_vesc_color_register(s);
+		char err[256] = {0};
+
+		ok("color_make packs WRGB", run(s,
+				"assert(vesc.color_make(0x12, 0x34, 0x56) == 0x123456)",
+				err, sizeof(err)));
+		ok("color_split returns four components", run(s,
+				"local r,g,b,w = vesc.color_split(0x123456)\n"
+				"assert(r == 0x12 and g == 0x34 and b == 0x56 and w == 0)",
+				err, sizeof(err)));
+		ok("a fraction means the same as 0..255", run(s,
+				"assert(vesc.color_make(1.0, 0.0, 0.0) == vesc.color_make(255, 0, 0))",
+				err, sizeof(err)));
+		ok("channels clamp rather than wrap", run(s,
+				"assert(vesc.color_make(300, -5, 0) == vesc.color_make(255, 0, 0))",
+				err, sizeof(err)));
+		ok("mix at the ends is either colour", run(s,
+				"assert(vesc.color_mix(0x000000, 0xFFFFFF, 0) == 0x000000)\n"
+				"assert(vesc.color_mix(0x000000, 0xFFFFFF, 1) == 0xFFFFFF)",
+				err, sizeof(err)));
+		{
+			char d[256] = {0};
+			run(s, "error(string.format('mix1=%s scale=%s frac=%s make=%s',"
+					"tostring(vesc.color_mix(0, 0xFFFFFF, 1)),"
+					"tostring(vesc.color_scale(0xFF0000, 0.5)),"
+					"tostring(vesc.color_make(1.0, 0, 0)),"
+					"tostring(vesc.color_make(255, 0, 0))))", d, sizeof(d));
+			printf("    [diag] %s\n", d);
+		}
+		ok("mix halfway is halfway", run(s,
+				"local c = vesc.color_mix(0x000000, 0xFF0000, 0.5)\n"
+				"local r = vesc.color_split(c)\n"
+				"assert(r == 127 or r == 128, r)",
+				err, sizeof(err)));
+		ok("a ratio outside 0..1 is clamped", run(s,
+				"assert(vesc.color_mix(0x000000, 0xFFFFFF, 5) == 0xFFFFFF)\n"
+				"assert(vesc.color_mix(0x000000, 0xFFFFFF, -5) == 0x000000)",
+				err, sizeof(err)));
+		ok("add saturates", run(s,
+				"assert(vesc.color_add(0xF00000, 0x200000) == 0xFF0000)",
+				err, sizeof(err)));
+		ok("sub floors at zero", run(s,
+				"assert(vesc.color_sub(0x100000, 0x200000) == 0x000000)",
+				err, sizeof(err)));
+		ok("scale halves each channel", run(s,
+				"assert(vesc.color_scale(0xFF0000, 0.5) == 0x7F0000)",
+				err, sizeof(err)));
+		ok("scale clamps above full", run(s,
+				"assert(vesc.color_scale(0xFF0000, 10) == 0xFF0000)",
+				err, sizeof(err)));
+
+		// The 32-bit signed case: white 0xFF makes the packed value negative,
+		// and it still has to survive a round trip through the bindings.
+		ok("a high white channel round trips", run(s,
+				"local c = vesc.color_make(0, 0, 0, 255)\n"
+				"assert(c < 0, 'expected a negative bit pattern')\n"
+				"local r,g,b,w = vesc.color_split(c)\n"
+				"assert(w == 255 and r == 0 and g == 0 and b == 0)\n"
+				"assert(vesc.color_scale(c, 1.0) == c)",
+				err, sizeof(err)));
+
 		script_lua_close(s);
 	}
 

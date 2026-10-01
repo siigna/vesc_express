@@ -17,6 +17,9 @@ void lua_vesc_disp_register(script_lua_t *s);
 // must be registered after lua_vesc_disp_register.
 void lua_vesc_font_register(script_lua_t *s);
 
+// Colours, in lua_vesc_color.c. Target only.
+void lua_vesc_color_register(script_lua_t *s);
+
 // Config, in lua_vesc_conf.c. Target only.
 void lua_vesc_conf_register(script_lua_t *s);
 

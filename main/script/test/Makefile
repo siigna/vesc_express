@@ -25,7 +25,14 @@ test_script_pack: test_script_pack.c ../script_pack.c ../script_pack.h
 
 # Lua itself is compiled without the warning flags used for our own code:
 # it is vendored third-party source and we do not edit it.
-lua_objs.a: $(LUA_SRCS)
+# The headers are a dependency, not just the sources. LUA_32BITS lives in the
+# vendored luaconf.h, so an archive built before that was set has 64-bit
+# integers and 8-byte floats while our own translation units have 32-bit ones.
+# Nothing fails to link: integer arguments still work and every float read
+# through luaL_checknumber comes back as zero. That cost an afternoon once.
+LUA_HDRS = $(wildcard $(LUA_DIR)/*.h)
+
+lua_objs.a: $(LUA_SRCS) $(LUA_HDRS)
 	@mkdir -p .luaobj
 	@for f in $(LUA_SRCS); do \
 		$(CC) -O1 -g -std=c11 $(LUA_CFLAGS) $(SAN) -c $$f \
@@ -36,11 +43,13 @@ lua_objs.a: $(LUA_SRCS)
 # tinygfx and tjpgd come straight from the tree: the drawing under test is the
 # drawing that ships, and it needs nothing from either interpreter.
 test_script_lua: test_script_lua.c ../script_lua.c ../script_pack.c \
-		../lua_vesc_disp.c $(DISP_DIR)/disp_backend.c \
+		../lua_vesc_disp.c ../lua_vesc_color.c \
+		$(DISP_DIR)/disp_backend.c $(DISP_DIR)/color_core.c \
 		$(GFX_DIR)/tinygfx.c $(GFX_DIR)/tjpgd.c lua_objs.a
 	$(CC) $(CFLAGS) -Wno-conversion -Wno-sign-conversion $(LUA_CFLAGS) $(SAN) \
 		-o $@ test_script_lua.c ../script_lua.c ../script_pack.c \
-		../lua_vesc_disp.c $(DISP_DIR)/disp_backend.c \
+		../lua_vesc_disp.c ../lua_vesc_color.c \
+		$(DISP_DIR)/disp_backend.c $(DISP_DIR)/color_core.c \
 		$(GFX_DIR)/tinygfx.c $(GFX_DIR)/tjpgd.c lua_objs.a -lm
 
 # The fixture is packed by the real tool, so the Python writer and the C

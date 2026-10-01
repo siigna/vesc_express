@@ -19,25 +19,15 @@
 #include "lispbm.h"
 #include "utils.h"
 
+// The arithmetic lives in display/color_core.c, shared with the Lua bindings.
+#include "color_core.h"
+
 static uint8_t dec_color(lbm_uint arg) {
-	int c = 0;
 	if (lbm_type_of_functional(arg) == LBM_TYPE_FLOAT) {
-		float tmp = lbm_dec_as_float(arg);
-		if (tmp < 1.001) {
-			tmp *= 255.0;
-		}
-		c = tmp;
-	} else {
-		c = lbm_dec_as_u32(arg);
+		return color_channel_from_float(lbm_dec_as_float(arg));
 	}
 
-	if (c < 0) {
-		c = 0;
-	} else if (c > 255) {
-		c = 255;
-	}
-
-	return c;
+	return color_clamp8((int)lbm_dec_as_u32(arg));
 }
 
 static lbm_value ext_color_make(lbm_value *args, lbm_uint argn) {
@@ -56,11 +46,7 @@ static lbm_value ext_color_make(lbm_value *args, lbm_uint argn) {
 		w = dec_color(args[3]);
 	}
 
-	uint32_t color = 0;
-	color |= ((uint32_t)w) << 24;
-	color |= ((uint32_t)r) << 16;
-	color |= ((uint32_t)g) << 8;
-	color |= ((uint32_t)b) << 0;
+	uint32_t color = color_pack(r, g, b, w);
 
 	if (argn == 4) {
 		return lbm_enc_u32(color);
@@ -124,33 +110,6 @@ static lbm_value ext_color_split(lbm_value *args, lbm_uint argn) {
 	return color_data;
 }
 
-static uint32_t color_mix(uint32_t color1, uint32_t color2, float ratio) {
-	uint8_t w1 = (color1 >> 24) & 0xFF;
-	uint8_t r1 = (color1 >> 16) & 0xFF;
-	uint8_t g1 = (color1 >> 8) & 0xFF;
-	uint8_t b1 = color1 & 0xFF;
-
-	uint8_t w2 = (color2 >> 24) & 0xFF;
-	uint8_t r2 = (color2 >> 16) & 0xFF;
-	uint8_t g2 = (color2 >> 8) & 0xFF;
-	uint8_t b2 = color2 & 0xFF;
-
-	utils_truncate_number(&ratio, 0.0, 1.0);
-
-	uint8_t w_res = (uint8_t)((float)w1 * (1.0 - ratio) + (float)w2 * ratio);
-	uint8_t r_res = (uint8_t)((float)r1 * (1.0 - ratio) + (float)r2 * ratio);
-	uint8_t g_res = (uint8_t)((float)g1 * (1.0 - ratio) + (float)g2 * ratio);
-	uint8_t b_res = (uint8_t)((float)b1 * (1.0 - ratio) + (float)b2 * ratio);
-
-	uint32_t color_res = 0;
-	color_res |= ((uint32_t)w_res) << 24;
-	color_res |= ((uint32_t)r_res) << 16;
-	color_res |= ((uint32_t)g_res) << 8;
-	color_res |= ((uint32_t)b_res) << 0;
-
-	return color_res;
-}
-
 static lbm_value ext_color_mix(lbm_value *args, lbm_uint argn) {
 	if (argn != 3) {
 		lbm_set_error_reason((char*)lbm_error_str_num_args);
@@ -167,7 +126,7 @@ static lbm_value ext_color_mix(lbm_value *args, lbm_uint argn) {
 	float ratio = lbm_dec_as_float(args[2]);
 
 	if (lbm_is_number(args[0])) {
-		return lbm_enc_u32(color_mix(lbm_dec_as_u32(args[0]), color2, ratio));
+		return lbm_enc_u32(color_core_mix(lbm_dec_as_u32(args[0]), color2, ratio));
 	} else {
 		lbm_value color_data = ENC_SYM_NIL;
 
@@ -177,7 +136,7 @@ static lbm_value ext_color_mix(lbm_value *args, lbm_uint argn) {
 			lbm_value arg = lbm_car(curr);
 			if (lbm_is_number(arg)) {
 				color_data = lbm_cons(lbm_enc_u32(
-						color_mix(lbm_dec_as_u32(arg), color2, ratio)), color_data);
+						color_core_mix(lbm_dec_as_u32(arg), color2, ratio)), color_data);
 			}
 
 			curr = lbm_cdr(curr);
@@ -185,41 +144,6 @@ static lbm_value ext_color_mix(lbm_value *args, lbm_uint argn) {
 
 		return lbm_list_destructive_reverse(color_data);
 	}
-}
-
-static uint32_t color_add_sub(uint32_t color1, uint32_t color2, bool sub) {
-	int16_t w1 = (color1 >> 24) & 0xFF;
-	int16_t r1 = (color1 >> 16) & 0xFF;
-	int16_t g1 = (color1 >> 8) & 0xFF;
-	int16_t b1 = color1 & 0xFF;
-
-	int16_t w2 = (color2 >> 24) & 0xFF;
-	int16_t r2 = (color2 >> 16) & 0xFF;
-	int16_t g2 = (color2 >> 8) & 0xFF;
-	int16_t b2 = color2 & 0xFF;
-
-	int16_t w_res = w1 + (sub ? -w2 : w2);
-	int16_t r_res = r1 + (sub ? -r2 : r2);
-	int16_t g_res = g1 + (sub ? -g2 : g2);
-	int16_t b_res = b1 + (sub ? -b2 : b2);
-
-	if (w_res < 0) w_res = 0;
-	if (r_res < 0) r_res = 0;
-	if (g_res < 0) g_res = 0;
-	if (b_res < 0) b_res = 0;
-
-	if (w_res > 255) w_res = 255;
-	if (r_res > 255) r_res = 255;
-	if (g_res > 255) g_res = 255;
-	if (b_res > 255) b_res = 255;
-
-	uint32_t color_res = 0;
-	color_res |= ((uint32_t)w_res) << 24;
-	color_res |= ((uint32_t)r_res) << 16;
-	color_res |= ((uint32_t)g_res) << 8;
-	color_res |= ((uint32_t)b_res) << 0;
-
-	return color_res;
 }
 
 static lbm_value ext_color_add_sub(lbm_value *args, lbm_uint argn, bool sub) {
@@ -237,7 +161,7 @@ static lbm_value ext_color_add_sub(lbm_value *args, lbm_uint argn, bool sub) {
 	uint32_t color2 = lbm_dec_as_u32(args[1]);
 
 	if (lbm_is_number(args[0])) {
-		return lbm_enc_u32(color_add_sub(lbm_dec_as_u32(args[0]), color2, sub));
+		return lbm_enc_u32(color_core_add_sub(lbm_dec_as_u32(args[0]), color2, sub));
 	} else {
 		lbm_value color_data = ENC_SYM_NIL;
 
@@ -247,7 +171,7 @@ static lbm_value ext_color_add_sub(lbm_value *args, lbm_uint argn, bool sub) {
 			lbm_value arg = lbm_car(curr);
 			if (lbm_is_number(arg)) {
 				color_data = lbm_cons(lbm_enc_u32(
-						color_add_sub(lbm_dec_as_u32(arg), color2, sub)), color_data);
+						color_core_add_sub(lbm_dec_as_u32(arg), color2, sub)), color_data);
 			}
 
 			curr = lbm_cdr(curr);
@@ -265,31 +189,6 @@ static lbm_value ext_color_sub(lbm_value *args, lbm_uint argn) {
 	return ext_color_add_sub(args, argn, true);
 }
 
-static uint32_t color_scale(uint32_t color, float scale) {
-	uint8_t w = (color >> 24) & 0xFF;
-	uint8_t r = (color >> 16) & 0xFF;
-	uint8_t g = (color >> 8) & 0xFF;
-	uint8_t b = color & 0xFF;
-
-	float w_res = (float)w * scale;
-	float r_res = (float)r * scale;
-	float g_res = (float)g * scale;
-	float b_res = (float)b * scale;
-
-	utils_truncate_number(&w_res, 0.0, 255.0);
-	utils_truncate_number(&r_res, 0.0, 255.0);
-	utils_truncate_number(&g_res, 0.0, 255.0);
-	utils_truncate_number(&b_res, 0.0, 255.0);
-
-	uint32_t color_res = 0;
-	color_res |= ((uint32_t)w_res) << 24;
-	color_res |= ((uint32_t)r_res) << 16;
-	color_res |= ((uint32_t)g_res) << 8;
-	color_res |= ((uint32_t)b_res) << 0;
-
-	return color_res;
-}
-
 static lbm_value ext_color_scale(lbm_value *args, lbm_uint argn) {
 	if (argn != 2) {
 		lbm_set_error_reason((char*)lbm_error_str_num_args);
@@ -305,7 +204,7 @@ static lbm_value ext_color_scale(lbm_value *args, lbm_uint argn) {
 	float scale = lbm_dec_as_float(args[1]);
 
 	if (lbm_is_number(args[0])) {
-		return lbm_enc_u32(color_scale(lbm_dec_as_u32(args[0]), scale));
+		return lbm_enc_u32(color_core_scale(lbm_dec_as_u32(args[0]), scale));
 	} else {
 		lbm_value color_data = ENC_SYM_NIL;
 
@@ -315,7 +214,7 @@ static lbm_value ext_color_scale(lbm_value *args, lbm_uint argn) {
 			lbm_value arg = lbm_car(curr);
 			if (lbm_is_number(arg)) {
 				color_data = lbm_cons(lbm_enc_u32(
-						color_scale(lbm_dec_as_u32(arg), scale)), color_data);
+						color_core_scale(lbm_dec_as_u32(arg), scale)), color_data);
 			}
 
 			curr = lbm_cdr(curr);

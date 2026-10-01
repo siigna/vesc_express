@@ -35,6 +35,7 @@ set(COMPONENT_SRCS
 "lbm_vesc_utils.c"
 "lispif_vesc_extensions.c"
 "lbm_color_extensions.c"
+"display/color_core.c"
 "lispBM/src/env.c"
 "lispBM/src/fundamental.c"
 "lispBM/src/heap.c"
@@ -141,9 +142,9 @@ if(SCRIPT_ENGINE STREQUAL "lua")
         message(STATUS "Script engine: Lua (LispBM excluded)")
     endif()
 
-    # Everything written against the LispBM ABI. touch/touch_core.c and
-    # touch/touch_cst836u.c are deliberately absent: the touch hardware path
-    # is engine-neutral and both engines bind to it.
+    # Everything written against the LispBM ABI. touch/touch_core.c,
+    # touch/touch_cst836u.c and display/color_core.c are deliberately absent:
+    # those are engine-neutral and both engines bind to them.
     set(LBM_DEPENDENT
         "lispif.c"
         "lispif_c_lib.c"
@@ -190,6 +191,7 @@ if(SCRIPT_ENGINE STREQUAL "lua")
         "script/lua_vesc_bms.c"
         "script/lua_vesc_wifi.c"
         "script/lua_vesc_conf.c"
+        "script/lua_vesc_color.c"
         "script/lua_vesc_font.c"
         "lispBM/src/extensions/ttf_backend.c"
         "script/luaif.c"

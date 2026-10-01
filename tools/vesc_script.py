@@ -308,8 +308,8 @@ def cmd_listen(b, args):
     return 0
 
 
-def dump_log(b, secs=3.0):
-    """Send the `log` terminal command on an already-open connection.
+def run_term(b, cmd, secs=3.0):
+    """Send a terminal command on an already-open connection.
 
     Separate from cmd_term so any action can be followed by a look at the
     ring without opening a second connection -- which matters because
@@ -318,9 +318,9 @@ def dump_log(b, secs=3.0):
     that reason: the ring being read was from the reset, not from the boot
     the command was sent to.
     """
-    print("--- kept log:")
+    print("--- %s:" % cmd)
     before = len(b.prints)
-    b.send(bytes([COMM_TERMINAL_CMD]) + b"log")
+    b.send(bytes([COMM_TERMINAL_CMD]) + cmd.encode())
     b.collect(secs)
     for line in b.prints[before:]:
         print("  " + line)
@@ -448,7 +448,14 @@ def main():
                     help="afterwards, dump the kept log on the same "
                          "connection. Opening a second one would reset the "
                          "board and wipe it.")
+    ap.add_argument("--then", metavar="CMD",
+                    help="afterwards, run this terminal command on the same "
+                         "connection. For looking at the aftermath of an "
+                         "action without a reset in between.")
     args = ap.parse_args()
+    # `then` is a Python keyword-adjacent name argparse maps to args.then;
+    # read it once here so the rest of the file does not have to care.
+    args.then_ = getattr(args, "then", None)
 
     if args.action == "upload" and not args.file:
         ap.error("upload needs a container file (build one with luapack.py)")
@@ -476,7 +483,9 @@ def main():
             "term": cmd_term,
         }[args.action](b, args)
         if args.log and args.action != "term":
-            dump_log(b)
+            run_term(b, "log")
+        if args.then_:
+            run_term(b, args.then_)
         return rc
     finally:
         b.close()

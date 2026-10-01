@@ -100,7 +100,14 @@ static int m_restart_cnt = 0;
 static script_blob_t m_blob;
 static bool m_blob_valid = false;
 
-static char print_prefix[32] = "lua";
+/*
+ * Empty, as the lisp engine leaves it. commands_printf_lisp uses this as the
+ * format string for a prefix on every line and inserts it again after each
+ * newline, so a non-empty value runs straight into the message -- "lua" plus
+ * "tick 5" reads as "luatick 5". A script that wants its output labelled can
+ * do it better than the firmware can.
+ */
+static char print_prefix[32] = "";
 static char fw_name[32] = {0};
 
 /*
@@ -119,6 +126,56 @@ static QueueHandle_t m_events = NULL;
 static volatile uint32_t m_dropped = 0;
 
 /*
+ * Which event kinds the script has handlers for, mirrored out of the engine
+ * by the task that owns it.
+ *
+ * event_post runs on the CAN and comms tasks and must not touch m_engine at
+ * all: the engine can be closed and freed while those tasks are between
+ * reading the pointer and using it, which is a use-after-free. It also must
+ * not take the mutex, because that would park a CAN frame behind a slow
+ * script handler.
+ *
+ * So the engine task refreshes these after anything that could change them,
+ * and producers read nothing else. A stale read costs one queued event
+ * nobody wants, or one dropped event nobody was going to see.
+ */
+static volatile uint8_t m_want_can = 0;
+static volatile uint8_t m_want_app = 0;
+static volatile uint8_t m_want_timer = 0;
+static volatile uint32_t m_timer_period = 0;
+
+// Called only from the engine task, with the engine alive.
+static void refresh_wants(void) {
+	if (m_engine) {
+		m_want_can = script_lua_wants(m_engine, SCRIPT_EV_CAN_SID) ? 1 : 0;
+		m_want_app = script_lua_wants(m_engine, SCRIPT_EV_APP_DATA) ? 1 : 0;
+		m_want_timer = script_lua_wants(m_engine, SCRIPT_EV_TIMER) ? 1 : 0;
+		m_timer_period = script_lua_timer_period(m_engine);
+	} else {
+		m_want_can = 0;
+		m_want_app = 0;
+		m_want_timer = 0;
+		m_timer_period = 0;
+	}
+}
+
+static bool want_event(script_event_type_t type) {
+	switch (type) {
+	case SCRIPT_EV_CAN_SID:
+	case SCRIPT_EV_CAN_EID:
+	case SCRIPT_EV_CAN2_SID:
+	case SCRIPT_EV_CAN2_EID:
+		return m_want_can != 0;
+	case SCRIPT_EV_APP_DATA:
+		return m_want_app != 0;
+	case SCRIPT_EV_TIMER:
+		return m_want_timer != 0;
+	default:
+		return false;
+	}
+}
+
+/*
  * Post from a producer task. Never blocks, never touches the interpreter.
  *
  * The check against script_lua_wants means traffic nothing has subscribed to
@@ -128,10 +185,7 @@ static volatile uint32_t m_dropped = 0;
  */
 static void event_post(script_event_type_t type, uint32_t id,
 		const uint8_t *data, int len) {
-	if (!m_events || !m_engine) {
-		return;
-	}
-	if (!script_lua_wants(m_engine, (int)type)) {
+	if (!m_events || !want_event(type)) {
 		return;
 	}
 
@@ -326,7 +380,9 @@ static void run_loaded(void) {
  * tick without polling at 20 ms when nothing is registered.
  */
 static void drain_events(void) {
-	uint32_t period = m_engine ? script_lua_timer_period(m_engine) : 0;
+	// From the mirror, not from the engine: this runs before the lock is
+	// taken, and the engine may be closed between a read and a use.
+	uint32_t period = m_want_timer ? m_timer_period : 0;
 
 	TickType_t wait = pdMS_TO_TICKS(100);
 	if (period > 0) {
@@ -382,30 +438,38 @@ static void lua_task(void *arg) {
 	(void)arg;
 
 	for (;;) {
+		// Stop first: a restart sets both flags, and closing before opening
+		// is what makes restart mean restart rather than "open a second
+		// interpreter and leak the first".
+		if (m_stop_req) {
+			lock();
+			engine_close();
+			refresh_wants();
+			unlock();
+			m_stop_req = false;
+		}
+
 		if (m_start_req) {
 			m_start_req = false;
-			m_stop_req = false;
 
 			lock();
 			bool loaded = load_blob();
 			bool opened = loaded && engine_open();
+			unlock();
+
 			if (opened) {
 				m_restart_cnt++;
-				unlock();
 				run_loaded();
-			} else {
+				// Handlers are registered by the script itself, so the
+				// mirrors can only be correct once it has run.
+				lock();
+				refresh_wants();
 				unlock();
+			} else {
 				ESP_LOGE(TAG, "not starting: blob %s, interpreter %s",
 						loaded ? "ok" : "unusable",
 						opened ? "ok" : "not created");
 			}
-		}
-
-		if (m_stop_req) {
-			lock();
-			engine_close();
-			unlock();
-			m_stop_req = false;
 		}
 
 		drain_events();
@@ -431,20 +495,30 @@ void lispif_init(void) {
 	ESP_LOGI(TAG, "Lua engine started");
 }
 
+/*
+ * Stop a script.
+ *
+ * This runs on the comms task, and it does not close the interpreter itself.
+ * Only the engine task does that, because it is the only task that can know
+ * it is not currently inside the interpreter. An earlier version closed it
+ * from here after waiting for a flag, and that crashed the board on every
+ * restart: the engine task reads m_engine outside the lock on its way into a
+ * dispatch, so freeing it from another task is a use-after-free that shows up
+ * as SW_CPU_RESET with a saved PC in the middle of the engine.
+ */
 void lispif_stop(void) {
-	m_stop_req = true;
-
-	// Wait for the script to unwind. The hook raises an error at the next
-	// check, so this is bounded by LUA_HOOK_COUNT instructions rather than by
-	// the script's own behaviour -- an infinite loop stops just as promptly
-	// as a cooperative one.
-	for (int i = 0; i < 200 && m_running; i++) {
-		vTaskDelay(pdMS_TO_TICKS(10));
+	if (!m_task) {
+		return;
 	}
 
-	lock();
-	engine_close();
-	unlock();
+	m_stop_req = true;
+
+	// The instruction hook raises at its next check, so this is bounded by
+	// LUA_HOOK_COUNT instructions rather than by the script's behaviour: an
+	// infinite loop stops as promptly as a cooperative one.
+	for (int i = 0; i < 300 && (m_engine || m_running); i++) {
+		vTaskDelay(pdMS_TO_TICKS(10));
+	}
 }
 
 int lispif_get_restart_cnt(void) {
@@ -453,10 +527,28 @@ int lispif_get_restart_cnt(void) {
 
 bool lispif_restart(bool print, bool load_code) {
 	(void)load_code;
-	if (print) {
-		commands_printf_lisp("Restarting Lua");
-	}
-	lispif_stop();
+
+	/*
+	 * Deliberately does not print.
+	 *
+	 * This runs on whichever comms task delivered the packet, and the UART
+	 * one is created with a 3 kB stack (comm_uart.c). commands_printf_lisp
+	 * runs sprintf and then vsnprintf -- full newlib printf, which wants one
+	 * to two kilobytes of stack each on RISC-V -- so a courtesy message here
+	 * overflows that task's stack and resets the board.
+	 *
+	 * It presented as "the Lua engine never prints anything": every restart
+	 * crashed before the script could produce output, and with the console
+	 * disabled on this board the reset was silent. A coredump named it in one
+	 * read. The lisp engine's lispif_restart does not print either, which is
+	 * why it never showed this.
+	 *
+	 * A restart is observable through GET_STATS and through the script's own
+	 * output, so nothing is lost.
+	 */
+	(void)print;
+
+	lispif_stop();		// waits for the engine task to close the interpreter
 	m_start_req = true;
 	return true;
 }

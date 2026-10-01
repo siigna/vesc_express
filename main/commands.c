@@ -1160,6 +1160,14 @@ int commands_printf(const char* format, ...) {
 	int len;
 
 	char *print_buffer = malloc(PRINT_BUFFER_SIZE);
+	if (!print_buffer) {
+		// Dropping a diagnostic message beats dereferencing NULL. This path
+		// is reachable under memory pressure, which is exactly when
+		// diagnostics are being printed.
+		va_end(arg);
+		xSemaphoreGive(print_mutex);
+		return 0;
+	}
 
 	print_buffer[0] = COMM_PRINT;
 	len = vsnprintf(print_buffer + 1, (PRINT_BUFFER_SIZE - 1), format, arg);
@@ -1189,7 +1197,11 @@ int commands_printf_lisp(const char* format, ...) {
 	int len;
 
 	char *print_buffer = malloc(PRINT_BUFFER_SIZE);
-
+	if (!print_buffer) {
+		va_end(arg);
+		xSemaphoreGive(print_mutex);
+		return 0;
+	}
 
 	print_buffer[0] = COMM_LISP_PRINT;
 	int offset = 1;

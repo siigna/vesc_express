@@ -1,0 +1,25 @@
+# Bring-up overlay: keep a crash backtrace in flash.
+#
+# Append after a board overlay, with the partition table that has a coredump
+# partition:
+#
+#   idf.py -DHW_NAME="..." -DBRINGUP_UART=1 \
+#       -DEXTRA_SDKCONFIG="sdkconfig.bringup_uart;sdkconfig.bringup_coredump" \
+#       build
+#
+# Then after a crash:
+#
+#   esptool --chip esp32p4 -p PORT read-flash <coredump offset> 0x10000 dump.bin
+#   espcoredump.py info_corefile -t raw -c dump.bin build/vesc_express.elf
+#
+# Why this exists: on a board whose only port carries the packet protocol,
+# ESP_CONSOLE_NONE means a panic is a silent reboot. The ROM prints a saved PC,
+# but it points at the panic handler, not at the fault -- resolving it says
+# "panic_handler" and nothing more. A coredump survives the reset.
+CONFIG_PARTITION_TABLE_CUSTOM=y
+CONFIG_PARTITION_TABLE_CUSTOM_FILENAME="partition_ota_16mb_coredump.csv"
+CONFIG_ESP_COREDUMP_ENABLE_TO_FLASH=y
+CONFIG_ESP_COREDUMP_DATA_FORMAT_ELF=y
+CONFIG_ESP_COREDUMP_CHECKSUM_SHA256=y
+CONFIG_ESP_COREDUMP_ENABLE=y
+CONFIG_ESP_COREDUMP_MAX_TASKS_NUM=32

@@ -1,0 +1,23 @@
+# Name,Type,SubType,Offset,Size
+#
+# partition_ota_16mb.csv with a coredump partition added, for bring-up on a
+# board that cannot show a console.
+#
+# A board whose only serial port carries the packet protocol has nowhere to
+# print a panic: with ESP_CONSOLE_NONE a crash is a silent reboot, and the
+# only clue the ROM leaves is a saved PC pointing at the panic handler rather
+# than at the fault. A coredump partition means the backtrace survives the
+# reset and can be read out over the same port afterwards.
+#
+# storage shrinks by 64k to make room, so this stays inside 16 MB and the
+# offsets of everything before it are unchanged -- a script already uploaded
+# to the lisp partition is still there after switching tables.
+nvs,data,nvs,,0x6000
+otadata,data,ota,,0x2000
+phy_init,data,phy,,0x1000
+ota_0,app,ota_0,,4096k
+ota_1,app,ota_1,,4096k
+lisp,data,nvs,,512k
+qml,data,nvs,,128k
+coredump,data,coredump,,64k
+storage,data,spiffs,,4032k

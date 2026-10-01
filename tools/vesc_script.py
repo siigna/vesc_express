@@ -60,6 +60,9 @@ COMM_TERMINAL_CMD = 20
 # COMM_PRINT. Collecting only the first is why `term log` first came back
 # empty: the board had answered, on the other id.
 COMM_PRINT = 21
+# The channel a package's QML UI drives a script over. Text, NUL terminated,
+# the way sendCustomAppData frames it.
+COMM_CUSTOM_APP_DATA = 36
 
 CHUNK = 384          # What VESC Tool uses; the firmware accepts it happily.
 
@@ -342,6 +345,24 @@ def cmd_term(b, args):
     return 0
 
 
+def cmd_appdata(b, args):
+    """Send one custom app data packet, as a package's QML UI would.
+
+    This is how ui.qml talks to a dash -- not the REPL -- so it is the only
+    way to exercise that path without VESC Tool. The trailing NUL is what
+    sendCustomAppData appends, and the receiving side strips it, so it is sent
+    here too rather than left to chance.
+    """
+    if not args.file:
+        print('appdata needs a command, e.g. appdata cfg')
+        return 1
+
+    b.send(bytes([COMM_CUSTOM_APP_DATA]) + args.file.encode() + b"\0")
+    b.collect(args.seconds)
+    show_prints(b)
+    return 0
+
+
 def cmd_stats(b, args):
     r = b.request(bytes([COMM_LISP_GET_STATS, 1]), COMM_LISP_GET_STATS, 5)
     if not r or len(r) < 10:
@@ -431,10 +452,10 @@ def main():
     ap.add_argument("port")
     ap.add_argument("action", choices=["ping", "upload", "run", "stop", "erase",
                                        "listen", "stats", "console", "repl",
-                                       "term"])
+                                       "term", "appdata"])
     ap.add_argument("file", nargs="?",
-                    help="container for upload, the expression for repl, or "
-                         "the command for term")
+                    help="container for upload, the expression for repl, the "
+                         "command for term, or the text for appdata")
     ap.add_argument("-b", "--baud", type=int, default=None,
                     help="skip probing and use this rate. Without it the "
                          "common rates are tried, starting at 115200.")
@@ -480,7 +501,7 @@ def main():
             "ping": cmd_ping, "upload": cmd_upload, "run": cmd_run,
             "stop": cmd_stop, "erase": cmd_erase, "listen": cmd_listen,
             "stats": cmd_stats, "console": cmd_console, "repl": cmd_repl,
-            "term": cmd_term,
+            "term": cmd_term, "appdata": cmd_appdata,
         }[args.action](b, args)
         if args.log and args.action != "term":
             run_term(b, "log")

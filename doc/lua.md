@@ -298,6 +298,56 @@ edge returns `nil` rather than a pixel from the next row.
 raising, so a script on a board whose display failed to initialise can carry
 on doing everything else.
 
+### Text
+
+```lua
+local font = vesc.font_load(vesc.asset("font24"))
+local w, h = font:measure("48.2V")
+buf:text(x, baseline_y, font, "48.2V", colour, antialias)
+local asc, desc, gap, glyphs = font:metrics()
+```
+
+Fonts are the ones `ttf-prepare` produces: glyphs already rasterised at one
+size, with metrics and optional kerning, in a single blob. Rendering one needs
+no TrueType parsing, which is why text works here while preparing a font does
+not — that needs `schrift`, which allocates through LispBM's memory pool.
+Prepare fonts on a host or a lisp build and bundle the result.
+
+`y` is the **baseline**, not the top. That is what the metrics are relative
+to, and placing text by its top makes lines of different sizes fail to line
+up.
+
+`measure` and `text` share one glyph walk, so they cannot disagree about
+advances or kerning. A missing glyph is skipped rather than failing the
+string: one unexpected character should not blank a field.
+
+Antialiasing falls out of the glyph format. An `indexed4` font carries three
+coverage levels, and coverage maps onto **consecutive palette entries** from
+the colour given — so a palette with a ramp gets smooth text:
+
+```lua
+local PAL = {0x000000, 0x404040, 0x909090, 0xFFFFFF}
+buf:text(10, 40, font, "hello", 1, true)    -- uses entries 1..3
+buf:text(10, 80, font, "hello", 3, false)   -- hard edges, entry 3 only
+```
+
+### Bundling binary data
+
+`require` compiles Lua source, so fonts, icons and lookup tables need another
+route. The container's import table holds arbitrary bytes:
+
+```
+tools/luapack.py main.lua -o main.luapkg     --asset font24=font/roboto-bold-24-4c.bin     --asset logo=img/logo.bin
+```
+
+```lua
+local blob = vesc.asset("font24")     -- a string, or nil if not bundled
+```
+
+The board has no filesystem, so the container is the only thing that travels
+with a script. Assets are returned as counted strings, so a NUL inside one
+does not truncate it.
+
 ### Touch
 
 ```lua

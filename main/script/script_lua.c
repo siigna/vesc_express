@@ -213,6 +213,37 @@ static int l_require(lua_State *L) {
 }
 
 /*
+ * vesc.asset(name) -> string, or nil when not bundled.
+ *
+ * The same import table require() uses, but handed back as bytes rather than
+ * compiled as Lua. Prepared fonts, icons and lookup tables are binary, and
+ * there is nowhere else to put them: the board has no filesystem and the
+ * container is the only thing that travels with a script.
+ */
+static int l_asset(lua_State *L) {
+	const char *name = luaL_checkstring(L, 1);
+
+	script_lua_t *s = NULL;
+	lua_getallocf(L, (void **)&s);
+	if (!s || !s->cfg.blob) {
+		lua_pushnil(L);
+		return 1;
+	}
+
+	const uint8_t *data = NULL;
+	int32_t len = 0;
+	if (!script_pack_import(s->cfg.blob, name, &data, &len)) {
+		lua_pushnil(L);
+		return 1;
+	}
+
+	// Pushed as a counted string, so a NUL inside a font or an icon is
+	// carried through rather than truncating it.
+	lua_pushlstring(L, (const char *)data, (size_t)len);
+	return 1;
+}
+
+/*
  * The sandbox.
  *
  * Opened: base (minus the dangerous entries), coroutine, string, table, math.
@@ -262,6 +293,8 @@ static void install_sandbox(lua_State *L) {
 
 	// The table bindings attach to.
 	lua_newtable(L);
+	lua_pushcfunction(L, l_asset);
+	lua_setfield(L, -2, "asset");
 	lua_setglobal(L, "vesc");
 }
 

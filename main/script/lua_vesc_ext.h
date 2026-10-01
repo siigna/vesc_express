@@ -13,6 +13,10 @@ void lua_vesc_io_register(script_lua_t *s);
 // dependencies.
 void lua_vesc_disp_register(script_lua_t *s);
 
+// Text, in lua_vesc_font.c. Adds buf:text() to the image metatable, so it
+// must be registered after lua_vesc_disp_register.
+void lua_vesc_font_register(script_lua_t *s);
+
 // Touch, in lua_vesc_touch.c. Target only.
 void lua_vesc_touch_register(script_lua_t *s);
 

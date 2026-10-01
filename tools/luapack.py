@@ -155,6 +155,33 @@ def module_path(base_dir: str, name: str) -> str:
         "under %s)" % (name, rel, rel, base_dir))
 
 
+def read_assets(specs, verbose=False):
+    """Read --asset NAME=PATH pairs into the import table.
+
+    Binary data has nowhere else to live: the board has no filesystem, and the
+    container is the only thing that travels with a script. A prepared font or
+    an icon goes here and the script reads it back with vesc.asset(name).
+    """
+    assets = {}
+    order = []
+    for spec in specs or []:
+        if '=' not in spec:
+            raise ValueError("--asset wants NAME=PATH, got %r" % spec)
+        name, path = spec.split('=', 1)
+        name = name.strip()
+        if not name:
+            raise ValueError("--asset has an empty name: %r" % spec)
+        if name in assets:
+            raise ValueError("--asset %s given twice" % name)
+        with open(path, 'rb') as f:
+            assets[name] = f.read()
+        order.append(name)
+        if verbose:
+            print("  asset    %-24s %d bytes" % (name, len(assets[name])),
+                  file=sys.stderr)
+    return order, assets
+
+
 def collect(main_path: str, verbose=False):
     """Read the main script and every module reachable through require.
 
@@ -224,8 +251,13 @@ def build(main_src: str, order, modules, lang_flag=FLAG_LANG_LUA) -> bytes:
     payload_at = table_start + table_size
     offsets = {}
     cursor = payload_at
+    def as_bytes(v):
+        # Modules arrive as text, assets as bytes. Everything in the table is
+        # bytes on the wire.
+        return v if isinstance(v, bytes) else v.encode('utf-8')
+
     for name in order:
-        payload = modules[name].encode('utf-8')
+        payload = as_bytes(modules[name])
         offsets[name] = (cursor, len(payload))
         cursor += len(payload)
 
@@ -239,7 +271,7 @@ def build(main_src: str, order, modules, lang_flag=FLAG_LANG_LUA) -> bytes:
         body += struct.pack('>i', length)
 
     for name in order:
-        body += modules[name].encode('utf-8')
+        body += as_bytes(modules[name])
 
     # body currently starts with the flags word, which is inside the crc'd and
     # counted region, matching what VESC Tool writes.
@@ -380,6 +412,9 @@ def main():
     ap.add_argument('-o', '--output', help='output container (default: <script>.luapkg)')
     ap.add_argument('--print-imports', action='store_true',
                     help='list the modules that would be bundled, then exit')
+    ap.add_argument('--asset', action='append', metavar='NAME=PATH',
+                    help='bundle a binary file, readable as vesc.asset(NAME). '
+                         'Repeatable.')
     ap.add_argument('--lisp', action='store_true',
                     help='mark the container as LispBM instead of Lua')
     ap.add_argument('-v', '--verbose', action='store_true')
@@ -393,6 +428,19 @@ def main():
         ap.error('a script is required unless --selftest is given')
 
     main_src, order, modules, warnings = collect(args.script, args.verbose)
+
+    try:
+        asset_order, assets = read_assets(args.asset, args.verbose)
+    except (ValueError, OSError) as e:
+        print("error: %s" % e, file=sys.stderr)
+        return 1
+    for name in asset_order:
+        if name in modules:
+            print("error: asset %s collides with a bundled module" % name,
+                  file=sys.stderr)
+            return 1
+    order = order + asset_order
+    modules = dict(modules, **assets)
 
     for w in warnings:
         print("warning: %s" % w, file=sys.stderr)

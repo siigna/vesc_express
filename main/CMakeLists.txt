@@ -95,6 +95,7 @@ set(COMPONENT_SRCS
 "display/disp_st7701_rgb.c"
 "display/clay_layout.c"
 "display/disp_backend.c"
+"display/ttf_font.c"
 
 "drivers/bme280/bme280.c"
 "drivers/bme280/bme280_if.c"
@@ -184,6 +185,8 @@ if(SCRIPT_ENGINE STREQUAL "lua")
         "script/lua_vesc_disp.c"
         "script/lua_vesc_disp_load.c"
         "script/lua_vesc_touch.c"
+        "script/lua_vesc_font.c"
+        "lispBM/src/extensions/ttf_backend.c"
         "script/luaif.c"
     )
 
@@ -204,6 +207,7 @@ set(COMPONENT_ADD_INCLUDEDIRS
 "config"
 "lua"
 "script"
+"lispBM/src/extensions"
 "hwconf"
 "hwconf/trampa"
 "hwconf/trampa/bms_rb"

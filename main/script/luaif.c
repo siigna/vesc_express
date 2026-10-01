@@ -82,10 +82,26 @@ static const char *TAG = "luaif";
 /*
  * Ceiling on script memory. Lua refuses allocations past this and raises a
  * catchable error, so a runaway script fails rather than starving the comms
- * stack. Sized generously for a board with PSRAM; the lisp engine's
- * equivalent budget on this target is a comparable order.
+ * stack.
+ *
+ * Two figures, because the boards differ by two orders of magnitude in what
+ * they have to give. Without PSRAM the ceiling is a real constraint on a few
+ * hundred kilobytes of internal SRAM shared with the comms stack. With it,
+ * CONFIG_SPIRAM_USE_MALLOC routes anything over
+ * CONFIG_SPIRAM_MALLOC_ALWAYSINTERNAL into external RAM, so the ceiling is
+ * there to catch a runaway script rather than to ration anything: this board
+ * has 32 MB behind it.
+ *
+ * 192 KB was not enough for a real UI. The touch dash is twenty-four modules
+ * and it ran out during load, before drawing anything -- which is the failure
+ * this limit is supposed to produce for a runaway, so it was not obviously a
+ * sizing problem until the number was checked against the hardware.
  */
+#ifdef CONFIG_SPIRAM
+#define LUA_MEM_LIMIT		(1024 * 1024)
+#else
 #define LUA_MEM_LIMIT		(192 * 1024)
+#endif
 
 // VM instructions between hook calls. Small enough to stop a tight loop
 // promptly, large enough that the hook is not a measurable tax.

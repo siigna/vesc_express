@@ -150,15 +150,15 @@
  * has to agree on the rate, so tools/vesc_script.py probes rather than being
  * told.
  *
- * Measured, and not yet working: built at 460800 or 921600 this board answers
- * no packet at all, at any host rate including 115200, while the same build
- * at 115200 is fine. It is not the wiring -- esptool drives the same two pins
- * at 2 Mbaud to talk to the ROM loader, and flashing at that rate is how the
- * firmware gets here. So the fault is on the firmware side of comm_uart, and
- * one thing worth looking at first is that comm_uart_init calls
- * uart_driver_install before uart_param_config, which is the reverse of the
- * usual order and would plausibly leave the rate at whatever the bootloader
- * set. Until that is understood, leave this alone.
+ * Measured on this board with the 217 KB dash package: 31 s at 115200 and
+ * 12 s at 921600, both including the reset, the erase and starting the
+ * script. 921600 is verified working end to end.
+ *
+ * An earlier version of this comment said the opposite -- that a board built
+ * for a higher rate answered nothing at all. That was a poisoned build
+ * directory whose first configure had failed, not the baud: the same source
+ * built in a working directory answers fine, and the control that would have
+ * caught it was building 115200 in the broken directory, which is silent too.
  */
 #ifndef COMM_UART_BAUD
 #define COMM_UART_BAUD          115200

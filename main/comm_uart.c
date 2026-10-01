@@ -22,7 +22,10 @@
 #include "comm_uart.h"
 #include "packet.h"
 #include "driver/uart.h"
+#include "esp_log.h"
 #include <string.h>
+
+static const char *TAG = "comm_uart";
 
 typedef struct {
 	int uart_num;
@@ -109,9 +112,49 @@ bool comm_uart_init(int pin_tx, int pin_rx, int uart_num, int baudrate) {
 			.source_clk = UART_SCLK_DEFAULT,
 	};
 
-	uart_driver_install(uart_num, 512, 512, 0, 0, 0);
-	uart_param_config(uart_num, &uart_config);
-	uart_set_pin(uart_num, pin_tx, pin_rx, -1, -1);
+	/*
+	 * These four return codes were all discarded, and this function returned
+	 * true regardless. A port that failed to configure therefore looked
+	 * exactly like a working one: the board boots, logs nothing, and answers
+	 * no packet. That is the shape of the bug being chased here -- a board
+	 * built for a non-default baud answers nothing at any rate -- so the
+	 * first fix is to stop throwing away the evidence.
+	 *
+	 * The fallback is deliberate rather than tidy. If the requested rate is
+	 * rejected, a board that drops back to 115200 is reachable and can be
+	 * asked what happened; one that gives up is a board to be recovered over
+	 * JTAG or by reflashing blind.
+	 */
+	esp_err_t res = uart_driver_install(uart_num, 512, 512, 0, 0, 0);
+	if (res != ESP_OK) {
+		ESP_LOGE(TAG, "uart_driver_install(%d): %s", uart_num, esp_err_to_name(res));
+		free(state);
+		return false;
+	}
+
+	res = uart_param_config(uart_num, &uart_config);
+	if (res != ESP_OK) {
+		ESP_LOGE(TAG, "uart_param_config(%d, %d baud): %s -- falling back to 115200",
+				uart_num, baudrate, esp_err_to_name(res));
+		uart_config.baud_rate = 115200;
+		res = uart_param_config(uart_num, &uart_config);
+		if (res != ESP_OK) {
+			ESP_LOGE(TAG, "uart_param_config(%d) at 115200 also failed: %s",
+					uart_num, esp_err_to_name(res));
+			uart_driver_delete(uart_num);
+			free(state);
+			return false;
+		}
+	}
+
+	res = uart_set_pin(uart_num, pin_tx, pin_rx, -1, -1);
+	if (res != ESP_OK) {
+		ESP_LOGE(TAG, "uart_set_pin(%d, tx %d, rx %d): %s",
+				uart_num, pin_tx, pin_rx, esp_err_to_name(res));
+		uart_driver_delete(uart_num);
+		free(state);
+		return false;
+	}
 
 	if (uart_num == 0) {
 		packet_init(send_packet_raw_u0, process_packet_u0, &(state->packet_state));

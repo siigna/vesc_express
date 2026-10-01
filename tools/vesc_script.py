@@ -172,7 +172,16 @@ class Board:
         buf = b""
         end = time.time() + secs
         while time.time() < end:
-            buf += self.s.read(1024) or b""
+            # read(n) blocks until n bytes OR the port timeout, so asking for
+            # 1024 when the reply is five bytes paid the whole timeout every
+            # time. An upload is 566 chunks each waiting for one short ack:
+            # at 200 ms apiece that is two minutes of doing nothing, which is
+            # what made uploads look like a baud problem. Ask for one byte,
+            # then take whatever else has already arrived.
+            got = self.s.read(1) or b""
+            if got and self.s.in_waiting:
+                got += self.s.read(self.s.in_waiting)
+            buf += got
             found = None
             for p in unframe(buf):
                 if not p:

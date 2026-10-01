@@ -37,7 +37,6 @@
 #include "lauxlib.h"
 
 #include "ttf_font.h"
-#include "ttf_backend.h"
 #include "tinygfx.h"
 
 #include <string.h>
@@ -168,7 +167,7 @@ static bool walk_text(font_ud_t *f, const char *utf8, glyph_fn fn, void *ctx,
 	uint32_t next = 0;
 	uint32_t code = 0;
 
-	while (get_utf32((uint8_t *)utf8, &code, i, &next)) {
+	while (ttf_font_utf32((uint8_t *)utf8, &code, i, &next)) {
 		i = next;
 
 		float advance = 0.0f;

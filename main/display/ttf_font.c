@@ -150,3 +150,46 @@ bool font_get_kerning(uint8_t *buffer, uint32_t left, uint32_t right, float *x_s
   }
   return false;
 }
+
+bool ttf_font_utf32(const uint8_t *utf8, uint32_t *utf32, uint32_t ix,
+		uint32_t *next_ix) {
+	const uint8_t *u = &utf8[ix];
+	uint32_t c = 0;
+
+	if (u[0] == 0) {
+		return false;
+	}
+
+	if (!(u[0] & 0x80U)) {
+		*utf32 = u[0];
+		*next_ix = ix + 1;
+	} else if ((u[0] & 0xe0U) == 0xc0U) {
+		c = (uint32_t)(u[0] & 0x1fU) << 6;
+		if ((u[1] & 0xc0U) != 0x80U) return false;
+		*utf32 = c + (u[1] & 0x3fU);
+		*next_ix = ix + 2;
+	} else if ((u[0] & 0xf0U) == 0xe0U) {
+		c = (uint32_t)(u[0] & 0x0fU) << 12;
+		if ((u[1] & 0xc0U) != 0x80U) return false;
+		c += (uint32_t)(u[1] & 0x3fU) << 6;
+		if ((u[2] & 0xc0U) != 0x80U) return false;
+		*utf32 = c + (u[2] & 0x3fU);
+		*next_ix = ix + 3;
+	} else if ((u[0] & 0xf8U) == 0xf0U) {
+		c = (uint32_t)(u[0] & 0x07U) << 18;
+		if ((u[1] & 0xc0U) != 0x80U) return false;
+		c += (uint32_t)(u[1] & 0x3fU) << 12;
+		if ((u[2] & 0xc0U) != 0x80U) return false;
+		c += (uint32_t)(u[2] & 0x3fU) << 6;
+		if ((u[3] & 0xc0U) != 0x80U) return false;
+		c += (u[3] & 0x3fU);
+		// Surrogates are not scalar values, and no font has a glyph for one.
+		if ((c & 0xFFFFF800U) == 0xD800U) return false;
+		*utf32 = c;
+		*next_ix = ix + 4;
+	} else {
+		return false;
+	}
+
+	return true;
+}

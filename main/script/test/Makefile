@@ -14,7 +14,11 @@ LUA_DIR ?= ../../lua
 # than here, because Lua defines it itself and a command-line define collides.
 GFX_DIR ?= ../../lispBM/utils
 DISP_DIR ?= ../../display
-LUA_CFLAGS = -I$(LUA_DIR) -I$(GFX_DIR) -I$(DISP_DIR) -DLUA_USE_APICHECK
+# ttf_backend.h lives in the lispBM tree but depends on nothing from the
+# interpreter: it is the glyph format the prepared fonts are in, which both
+# engines read.
+TTF_DIR ?= ../../lispBM/src/extensions
+LUA_CFLAGS = -I$(LUA_DIR) -I$(GFX_DIR) -I$(DISP_DIR) -I$(TTF_DIR) -DLUA_USE_APICHECK
 LUA_SRCS = $(wildcard $(LUA_DIR)/*.c)
 
 .PHONY: all run clean fuzz
@@ -64,6 +68,20 @@ run: test_script_pack test_script_lua packed.bin
 
 # Property fuzzing: any byte string at all must either parse or be refused,
 # and every import it reports must be in bounds. Needs clang.
+# Renders a packed Lua script to a PPM with the real drawing code, so a view
+# can be compared against the goldens in dash_common/test without a board.
+render_host: render_host.c ../script_lua.c ../script_pack.c \
+		../lua_vesc_disp.c ../lua_vesc_color.c ../lua_vesc_font.c \
+		$(DISP_DIR)/disp_backend.c $(DISP_DIR)/color_core.c \
+		$(DISP_DIR)/ttf_font.c ../../buffer.c \
+		$(GFX_DIR)/tinygfx.c $(GFX_DIR)/tjpgd.c lua_objs.a
+	$(CC) $(CFLAGS) -Wno-conversion -Wno-sign-conversion $(LUA_CFLAGS) $(SAN) \
+		-o $@ render_host.c ../script_lua.c ../script_pack.c \
+		../lua_vesc_disp.c ../lua_vesc_color.c ../lua_vesc_font.c \
+		$(DISP_DIR)/disp_backend.c $(DISP_DIR)/color_core.c \
+		$(DISP_DIR)/ttf_font.c ../../buffer.c \
+		$(GFX_DIR)/tinygfx.c $(GFX_DIR)/tjpgd.c lua_objs.a -lm
+
 fuzz_script_pack: fuzz_script_pack.c ../script_pack.c ../script_pack.h
 	clang $(CFLAGS) -fsanitize=fuzzer,address,undefined \
 		-o $@ fuzz_script_pack.c ../script_pack.c
@@ -72,5 +90,5 @@ fuzz: fuzz_script_pack
 	./fuzz_script_pack -max_total_time=$(or $(FUZZ_SECONDS),30) -print_final_stats=1
 
 clean:
-	rm -f test_script_pack test_script_lua fuzz_script_pack lua_objs.a packed.bin
+	rm -f test_script_pack test_script_lua fuzz_script_pack render_host lua_objs.a packed.bin
 	rm -rf crash-* leak-* timeout-* .luaobj

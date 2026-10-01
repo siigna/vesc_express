@@ -67,4 +67,17 @@ bool font_get_glyph(uint8_t *buffer, float *advance_width,
 bool font_get_kerning(uint8_t *buffer, uint32_t left, uint32_t right,
 		float *x_shift, float *y_shift, int32_t index);
 
+/*
+ * One UTF-8 code point out of a NUL-terminated string, advancing next_ix.
+ * False at the terminator or on a malformed sequence.
+ *
+ * The same decoder as get_utf32 in lispBM's ttf_backend.c, under a different
+ * name rather than shared: that one sits behind a header which pulls in the
+ * interpreter's display extensions, and the Lua font path is meant to need
+ * nothing from the lispBM tree. Two copies of twenty lines of UTF-8 decoding
+ * is the cheaper of those two problems, and this copy is the one with tests.
+ */
+bool ttf_font_utf32(const uint8_t *utf8, uint32_t *utf32, uint32_t ix,
+		uint32_t *next_ix);
+
 #endif /* MAIN_DISPLAY_TTF_FONT_H_ */

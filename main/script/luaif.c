@@ -529,6 +529,30 @@ static void repl_eval(void) {
 }
 
 static void drain_events(void) {
+	/*
+	 * Catch up with the script's subscriptions every pass.
+	 *
+	 * These used to be read only after the main chunk returned, which is
+	 * correct but late: a script that spends seconds initialising -- opening
+	 * a panel, writing seventy eeprom cells, holding a splash -- has
+	 * registered its handlers long before it finishes, and until it did,
+	 * every event for them was discarded by want_event before it even
+	 * reached the queue.
+	 *
+	 * That produced a race rather than a steady failure, which is what made
+	 * it expensive to find: whether a packet arrived depended on whether the
+	 * chunk happened to have finished, so the same test passed and failed
+	 * with no change to the code.
+	 *
+	 * Five byte reads on the task that owns the engine, once per pass of at
+	 * most the timer period. Events that arrive while the chunk is still
+	 * running are still dropped -- the task is inside it and draining
+	 * nothing -- and that is deliberate: queueing a long startup's worth of
+	 * CAN traffic would fill the queue with frames from before the script was
+	 * ready to read any.
+	 */
+	refresh_wants();
+
 	// From the mirror, not from the engine: this runs before the lock is
 	// taken, and the engine may be closed between a read and a use.
 	uint32_t period = m_want_timer ? m_timer_period : 0;

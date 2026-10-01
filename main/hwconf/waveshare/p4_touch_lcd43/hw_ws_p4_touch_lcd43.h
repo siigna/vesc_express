@@ -60,6 +60,27 @@
 #define HW_TARGET               "esp32p4_ws_lcd43"
 
 /*
+ * The 32 MB part leaves 23 MB past everything the firmware needs, so this
+ * board gets the internal filesystem: f-connect-storage and f-storage-info,
+ * mounting the storage partition on demand. Nothing is mounted at boot, so a
+ * script that never asks pays nothing for this.
+ *
+ * The partition sits above the 16 MB line, which is reachable here but is a
+ * property of the flash chip rather than of the board: esp_partition_read and
+ * write go through esp_flash, which clamps the usable size to 16 MB unless
+ * the chip driver claims SPI_FLASH_CHIP_CAP_32MB_SUPPORT. The GD25Q256 fitted
+ * here (id 0xc84019) satisfies spi_flash_chip_gd_get_caps, whose test is
+ * (chip_id & 0xFF) >= 0x19, and CONFIG_SPI_FLASH_SUPPORT_GD_CHIP is on. A
+ * board built with a different 32 MB part should confirm that before trusting
+ * the upper half -- the clamp is a warning at boot, not an error at the call.
+ *
+ * None of that applies to the memory-mapped path. flash_helper reads the
+ * script and qml partitions through esp_partition_mmap, and those stay below
+ * the line: see the header of partition_ota_32mb.csv.
+ */
+#define HW_INTERNAL_FS
+
+/*
  * GPIO37/38 carry the CAN transceiver on this board and are also UART0.
  *
  * Normally that means no console UART and logs go out over USB-Serial/JTAG.
@@ -117,7 +138,22 @@
  */
 #define HW_UART_COMM
 #define UART_NUM                0
-#define UART_BAUDRATE           115200
+/*
+ * 115200 by default, because that is what VESC Tool's board-setup path asks
+ * for and what every existing script upload assumes. Override it from the
+ * build when the link is the bottleneck:
+ *
+ *   idf.py -DCOMM_UART_BAUD=921600 ...
+ *
+ * The CH343 bridge on this board handles several Mbaud, and the dash package
+ * is 217 KB: at 115200 an upload is a quarter of a minute, at 921600 it is a
+ * couple of seconds. Anything talking to a board built this way has to agree,
+ * so tools/vesc_script.py probes the common rates rather than being told.
+ */
+#ifndef COMM_UART_BAUD
+#define COMM_UART_BAUD          115200
+#endif
+#define UART_BAUDRATE           COMM_UART_BAUD
 #define UART_TX                 37
 #define UART_RX                 38
 #else

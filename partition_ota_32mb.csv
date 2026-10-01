@@ -15,9 +15,31 @@
 # beyond 16 MB needs 32-bit addressing and nothing in the build turns that on,
 # so anything the firmware must read back belongs below the line.
 #
-# storage above 16 MB is therefore also unproven. It is a SPIFFS partition for
-# logs, so it fails visibly and harmlessly if that turns out not to work;
-# nothing boots from it.
+# storage extends past 16 MB and that part is now proven, with two corrections
+# to what this comment used to claim.
+#
+# First, the limit is not "nothing in the build turns on 32-bit addressing".
+# esp_flash does it per transaction, but it clamps the usable size to 16 MB
+# unless the chip driver claims SPI_FLASH_CHIP_CAP_32MB_SUPPORT. The part
+# fitted here is a GD25Q256 (id 0xc84019); spi_flash_chip_gd_get_caps claims
+# it for (chip_id & 0xFF) >= 0x19, and CONFIG_SPI_FLASH_SUPPORT_GD_CHIP is on.
+# A board with a different 32 MB part has to be checked: the clamp is a
+# warning at boot, not an error at the call.
+#
+# What really stops the app and script partitions living up there is the
+# memory-mapped path. flash_helper reads them through esp_partition_mmap, and
+# that is a different mechanism from esp_flash with its own limits, so they
+# stay below the line regardless.
+#
+# Second, a 23 MB SPIFFS needs CONFIG_SPIFFS_PAGE_SIZE=512, which is set in
+# sdkconfig.defaults.esp32p4_ws_lcd43. SPIFFS indexes pages with a uint16, so
+# at the default 256 bytes a partition caps out at exactly 16 MB and the mount
+# fails with ESP_ERR_INVALID_ARG -- a number that says nothing about pages.
+#
+# Verified on hardware: mount, 21,060,273 bytes free, a file written and read
+# back. Note the first mount formats the whole partition, which is around six
+# thousand sector erases: the board does not answer packets for several
+# minutes and looks hung. That is worth knowing before concluding it crashed.
 nvs,data,nvs,,0x6000
 otadata,data,ota,,0x2000
 phy_init,data,phy,,0x1000

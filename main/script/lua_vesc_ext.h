@@ -17,6 +17,12 @@ void lua_vesc_disp_register(script_lua_t *s);
 // must be registered after lua_vesc_disp_register.
 void lua_vesc_font_register(script_lua_t *s);
 
+// Config, in lua_vesc_conf.c. Target only.
+void lua_vesc_conf_register(script_lua_t *s);
+
+// Implemented in luaif.c, which owns the print prefix commands.c reads.
+void luaif_set_print_prefix(const char *prefix);
+
 // WiFi, in lua_vesc_wifi.c. Target only.
 void lua_vesc_wifi_register(script_lua_t *s);
 

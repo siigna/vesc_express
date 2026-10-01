@@ -329,6 +329,7 @@ static bool engine_open(void) {
 	lua_vesc_touch_register(m_engine);
 	lua_vesc_bms_register(m_engine);
 	lua_vesc_wifi_register(m_engine);
+	lua_vesc_conf_register(m_engine);
 	script_lua_install_events(m_engine);
 	return true;
 }
@@ -593,6 +594,22 @@ bool lispif_restart(bool print, bool load_code) {
 	lispif_stop();		// waits for the engine task to close the interpreter
 	m_start_req = true;
 	return true;
+}
+
+/*
+ * Set by vesc.set_print_prefix. The lisp side keeps its prefix in
+ * lispif_vesc_extensions.c, which a lua build excludes, so the engine adapter
+ * owns it here -- it is the half that already answers
+ * lispif_print_prefix for commands.c.
+ */
+void luaif_set_print_prefix(const char *prefix) {
+	if (!prefix) {
+		print_prefix[0] = '\0';
+		return;
+	}
+
+	strncpy(print_prefix, prefix, sizeof(print_prefix) - 1);
+	print_prefix[sizeof(print_prefix) - 1] = '\0';
 }
 
 char *lispif_print_prefix(void) {

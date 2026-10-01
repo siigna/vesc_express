@@ -36,6 +36,8 @@
 
 #include "driver/uart.h"
 #include "driver/i2c.h"
+#include "driver/ledc.h"
+#include "utils.h"
 #include "freertos/FreeRTOS.h"
 
 #include <string.h>
@@ -317,7 +319,84 @@ static int l_i2c_detect_addr(lua_State *L) {
 
 // ------------------------------------------------------------ registration --
 
+/*
+ * vesc.pwm_start(freq_hz, duty, channel, pin [, bits]) -> the frequency set
+ *
+ * LEDC, low speed mode, one timer per channel. duty is 0..1 and is clamped
+ * rather than refused, as the lisp binding does.
+ *
+ * This is how a board with a real backlight drives it, which is why it is the
+ * one binding a dash cannot do without: the panel comes up dark until
+ * something sets a duty here.
+ */
+static int l_pwm_start(lua_State *L) {
+	uint32_t freq = (uint32_t)luaL_checkinteger(L, 1);
+	float duty = (float)luaL_checknumber(L, 2);
+	int chan = (int)luaL_checkinteger(L, 3);
+	int pin = (int)luaL_checkinteger(L, 4);
+	int bits = (int)luaL_optinteger(L, 5, 10);
+
+	utils_truncate_number(&duty, 0.0, 1.0);
+
+	if (chan < 0 || chan >= LEDC_TIMER_MAX) {
+		return luaL_error(L, "pwm_start: channel %d is outside 0..%d",
+				chan, LEDC_TIMER_MAX - 1);
+	}
+	if (!utils_gpio_is_valid(pin)) {
+		return luaL_error(L, "pwm_start: %d is not a usable pin", pin);
+	}
+	if (bits < 2 || bits > 14) {
+		return luaL_error(L, "pwm_start: %d bits is outside 2..14", bits);
+	}
+
+	ledc_timer_config_t timer = {
+			.speed_mode = LEDC_LOW_SPEED_MODE,
+			.timer_num = chan,
+			.duty_resolution = bits,
+			.freq_hz = freq,
+			.clk_cfg = LEDC_AUTO_CLK,
+	};
+
+	if (ledc_timer_config(&timer) != ESP_OK) {
+		return luaL_error(L, "pwm_start: %u Hz at %d bits is not achievable",
+				(unsigned)freq, bits);
+	}
+
+	ledc_channel_config_t ch = {
+			.speed_mode = LEDC_LOW_SPEED_MODE,
+			.channel = chan,
+			.timer_sel = chan,
+			.intr_type = LEDC_INTR_DISABLE,
+			.gpio_num = pin,
+			.duty = (int)(duty * (float)(1 << bits)),
+			.hpoint = 0,
+	};
+
+	if (ledc_channel_config(&ch) != ESP_OK) {
+		return luaL_error(L, "pwm_start: could not configure channel %d", chan);
+	}
+
+	lua_pushinteger(L, ledc_get_freq(LEDC_LOW_SPEED_MODE, chan));
+	return 1;
+}
+
+// vesc.pwm_stop(channel) -- releases the pin, leaving it low.
+static int l_pwm_stop(lua_State *L) {
+	int chan = (int)luaL_checkinteger(L, 1);
+
+	if (chan < 0 || chan >= LEDC_TIMER_MAX) {
+		return luaL_error(L, "pwm_stop: channel %d is outside 0..%d",
+				chan, LEDC_TIMER_MAX - 1);
+	}
+
+	ledc_stop(LEDC_LOW_SPEED_MODE, chan, 0);
+	return 0;
+}
+
 static const luaL_Reg io_fns[] = {
+	{"pwm_start", l_pwm_start},
+	{"pwm_stop", l_pwm_stop},
+
 	{"uart_start", l_uart_start},
 	{"uart_stop", l_uart_stop},
 	{"uart_write", l_uart_write},

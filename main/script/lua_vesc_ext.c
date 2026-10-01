@@ -37,6 +37,11 @@
 
 #include "commands.h"
 #include "comm_can.h"
+#include "comm_usb.h"
+#include "comm_wifi.h"
+#include "mempools.h"
+#include "nmea.h"
+#include "esp_system.h"
 #include "flash_helper.h"
 #include "adc.h"
 #include "utils.h"
@@ -212,6 +217,24 @@ static int l_canget_duty(lua_State *L) {
 }
 
 static int l_canget_rpm(lua_State *L) {
+	can_status_msg *st = comm_can_get_status_msg_id((int)luaL_checkinteger(L, 1));
+	if (!st) {
+		lua_pushnil(L);
+		return 1;
+	}
+	lua_pushnumber(L, (lua_Number)st->rpm);
+	return 1;
+}
+
+/*
+ * vesc.canget_speed(id)
+ *
+ * Carries an upstream quirk deliberately: the lisp canget-speed on this
+ * firmware returns the status frame's rpm, not a speed -- there is no gearing
+ * here to turn one into the other. Bound under the same name so a ported
+ * script behaves identically, and documented so the name does not mislead.
+ */
+static int l_canget_speed(lua_State *L) {
 	can_status_msg *st = comm_can_get_status_msg_id((int)luaL_checkinteger(L, 1));
 	if (!st) {
 		lua_pushnil(L);
@@ -532,6 +555,82 @@ static int l_events_dropped(lua_State *L) {
 
 // ------------------------------------------------------------ registration --
 
+/*
+ * vesc.reboot() -- does not return.
+ *
+ * Drops the wifi link first and gives it a moment, as the lisp binding does;
+ * restarting with the co-processor mid-transaction leaves it to time out on
+ * its own.
+ */
+static int l_reboot(lua_State *L) {
+	(void)L;
+	comm_wifi_disconnect();
+	vTaskDelay(50 / portTICK_PERIOD_MS);
+	esp_restart();
+	return 0;
+}
+
+// vesc.set_print_prefix("DISP-") -- tags this script's output.
+static int l_set_print_prefix(lua_State *L) {
+	const char *prefix = luaL_checkstring(L, 1);
+	luaif_set_print_prefix(prefix);
+	return 0;
+}
+
+// vesc.gnss_speed() -> m/s from the last RMC sentence.
+static int l_gnss_speed(lua_State *L) {
+	lua_pushnumber(L, nmea_get_state()->rmc.speed);
+	return 1;
+}
+
+/*
+ * vesc.send_data(data [, interface [, can_id]])
+ *
+ * data is a string, which is how Lua carries bytes -- string.pack builds one
+ * in whatever layout the receiver expects. Goes out as COMM_CUSTOM_APP_DATA,
+ * which is what a companion app or a dash protocol reads.
+ *
+ * interface: 0 the current comm port, 1 USB, 2 CAN (with can_id), 3 the
+ * local wifi socket. Same numbering as the lisp binding.
+ */
+static int l_send_data(lua_State *L) {
+	size_t len = 0;
+	const char *data = luaL_checklstring(L, 1, &len);
+	int interface = (int)luaL_optinteger(L, 2, 0);
+	int can_id = (int)luaL_optinteger(L, 3, 0);
+
+	// One byte for the command id, and the buffer is a fixed mempool block.
+	if (len > 400) {
+		return luaL_error(L, "send_data: %d bytes is more than 400", (int)len);
+	}
+
+	uint8_t *buf = mempools_get_packet_buffer();
+	if (!buf) {
+		return luaL_error(L, "send_data: no packet buffer free");
+	}
+
+	int ind = 0;
+	buf[ind++] = COMM_CUSTOM_APP_DATA;
+	memcpy(buf + ind, data, len);
+	ind += (int)len;
+
+	switch (interface) {
+	case 1:
+		comm_usb_send_packet(buf, ind);
+		break;
+	case 2:
+		comm_can_send_buffer(can_id, buf, ind, 3);
+		break;
+	default:
+		commands_send_packet(buf, ind);
+		break;
+	}
+
+	mempools_free_packet_buffer(buf);
+	lua_pushboolean(L, 1);
+	return 1;
+}
+
 static const luaL_Reg vesc_fns[] = {
 	{"systime", l_systime},
 	{"secs_since", l_secs_since},
@@ -551,6 +650,7 @@ static const luaL_Reg vesc_fns[] = {
 	{"canget_current_in", l_canget_current_in},
 	{"canget_duty", l_canget_duty},
 	{"canget_rpm", l_canget_rpm},
+	{"canget_speed", l_canget_speed},
 	{"canget_temp_fet", l_canget_temp_fet},
 	{"canget_temp_motor", l_canget_temp_motor},
 	{"canget_vin", l_canget_vin},
@@ -579,6 +679,10 @@ static const luaL_Reg vesc_fns[] = {
 	{"get_adc", l_get_adc},
 
 	{"events_dropped", l_events_dropped},
+	{"reboot", l_reboot},
+	{"set_print_prefix", l_set_print_prefix},
+	{"send_data", l_send_data},
+	{"gnss_speed", l_gnss_speed},
 
 	{NULL, NULL},
 };

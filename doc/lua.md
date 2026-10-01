@@ -344,6 +344,28 @@ remaining work; the drivers underneath are engine-neutral. Boards whose own
 `hw_*.c` registers script extensions cannot be built with Lua yet for the
 same reason. `tools/script_ext_coverage.py` is the current state of that.
 
+## A worked example
+
+`examples/lua/dash.lua` is a working dash page: a top bar, a large speed
+readout and three stacked readings, updating at 10 Hz. Measured on an
+ESP32-P4 at 800x480: **2.36% CPU and 85 kB** of the engine's 192 kB ceiling.
+
+Three things in it are worth copying rather than rediscovering:
+
+- **A buffer per field, not one for the screen.** A full-screen render here is
+  384 000 pixels through a software transpose. Each field owns a buffer sized
+  to itself, so a changed reading costs a render of its own box.
+- **Change detection on the formatted string, not the value.** A current
+  reading that wobbles in the third decimal must not force a redraw every
+  frame. Idle, the dash redraws nothing.
+- **Age-gate every CAN reading.** The first run of that dash on hardware
+  showed a confident `0.0 V`, because `canget_vin` returned the last value
+  seen for an id that had only ever reported zeros. Everything goes through
+  `vesc.can_msg_age` now and anything stale reads as absent.
+
+The layout is a table of `{x, y, read, fmt, colour}` rows, so adding a reading
+is data rather than code.
+
 ## Testing without hardware
 
 ```

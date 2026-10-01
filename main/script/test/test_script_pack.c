@@ -57,11 +57,38 @@ static void put_i32(blob_t *b, int32_t v) {
 static void blob_start(blob_t *b, uint16_t flags, const char *src) {
 	memset(b, 0, sizeof(*b));
 	b->len = 0;
-	put_i32(b, 0);		// size, not checked by the parser
+	put_i32(b, 0);		// size, filled in by blob_finish
 	put_u16(b, 0);		// crc, likewise
 	put_u16(b, flags);
 	memcpy(b->buf + b->len, src, strlen(src) + 1);
 	b->len += (int32_t)strlen(src) + 1;
+}
+
+static uint16_t t_crc16(const uint8_t *d, int32_t n) {
+	uint16_t crc = 0;
+	for (int32_t i = 0; i < n; i++) {
+		crc ^= (uint16_t)((uint16_t)d[i] << 8);
+		for (int k = 0; k < 8; k++) {
+			crc = (crc & 0x8000u) ? (uint16_t)((crc << 1) ^ 0x1021u)
+					: (uint16_t)(crc << 1);
+		}
+	}
+	return crc;
+}
+
+/*
+ * Fill in size and crc the way VESC Tool does: the counted region starts at
+ * the flags word and the stored figure is two less than its length.
+ */
+static void blob_finish(blob_t *b) {
+	int32_t body = b->len - 6;
+	b->buf[0] = (uint8_t)((body - 2) >> 24);
+	b->buf[1] = (uint8_t)((body - 2) >> 16);
+	b->buf[2] = (uint8_t)((body - 2) >> 8);
+	b->buf[3] = (uint8_t)(body - 2);
+	uint16_t crc = t_crc16(b->buf + 6, body);
+	b->buf[4] = (uint8_t)(crc >> 8);
+	b->buf[5] = (uint8_t)crc;
 }
 
 int main(void) {
@@ -69,6 +96,7 @@ int main(void) {
 	{
 		blob_t b;
 		blob_start(&b, SCRIPT_FLAG_LANG_LUA, "return 1");
+		blob_finish(&b);
 		script_blob_t p;
 		expect("plain lua blob parses", script_pack_parse(b.buf, b.len, &p), 1);
 		expect_str("source", p.src, "return 1");
@@ -82,6 +110,7 @@ int main(void) {
 	{
 		blob_t b;
 		blob_start(&b, 0, "(print 1)");
+		blob_finish(&b);
 		script_blob_t p;
 		expect("flags zero parses", script_pack_parse(b.buf, b.len, &p), 1);
 		expect("language is lisp", p.lang, SCRIPT_LANG_LISP);
@@ -107,6 +136,7 @@ int main(void) {
 		memcpy(b.buf + b.len, "AAAAA", 5); b.len += 5;
 		memcpy(b.buf + b.len, "BBB", 3); b.len += 3;
 
+		blob_finish(&b);
 		script_blob_t p;
 		expect("blob with imports parses", script_pack_parse(b.buf, b.len, &p), 1);
 		expect("two imports", p.num_imports, 2);
@@ -161,6 +191,7 @@ int main(void) {
 		blob_t b;
 		blob_start(&b, SCRIPT_FLAG_LANG_LUA, "x");
 		put_u16(&b, 400);
+		blob_finish(&b);
 		expect("oversized count still parses the source",
 				script_pack_parse(b.buf, b.len, &p), 1);
 		const uint8_t *d = NULL;
@@ -171,6 +202,7 @@ int main(void) {
 		// Count above the 500 cap is treated as absent.
 		blob_start(&b, SCRIPT_FLAG_LANG_LUA, "x");
 		put_u16(&b, 500);
+		blob_finish(&b);
 		expect("count at the cap parses", script_pack_parse(b.buf, b.len, &p), 1);
 		expect("count at the cap means no imports", p.num_imports, 0);
 
@@ -180,6 +212,7 @@ int main(void) {
 		memcpy(b.buf + b.len, "a", 2); b.len += 2;
 		put_i32(&b, 0);
 		put_i32(&b, 100000);
+		blob_finish(&b);
 		expect("out of range length parses", script_pack_parse(b.buf, b.len, &p), 1);
 		expect("out of range import refused",
 				script_pack_import(&p, "a", &d, &dl), 0);
@@ -190,6 +223,7 @@ int main(void) {
 		memcpy(b.buf + b.len, "a", 2); b.len += 2;
 		put_i32(&b, -8);
 		put_i32(&b, 4);
+		blob_finish(&b);
 		expect("negative offset parses", script_pack_parse(b.buf, b.len, &p), 1);
 		expect("negative offset refused",
 				script_pack_import(&p, "a", &d, &dl), 0);
@@ -200,6 +234,7 @@ int main(void) {
 		memcpy(b.buf + b.len, "a", 2); b.len += 2;
 		put_i32(&b, 0x7FFFFFFF);
 		put_i32(&b, 0x7FFFFFFF);
+		blob_finish(&b);
 		expect("overflowing pair parses", script_pack_parse(b.buf, b.len, &p), 1);
 		expect("overflowing pair refused",
 				script_pack_import(&p, "a", &d, &dl), 0);
@@ -209,9 +244,59 @@ int main(void) {
 		put_u16(&b, 1);
 		memset(b.buf + b.len, 'n', 8);
 		b.len += 8;
+		blob_finish(&b);
 		expect("unterminated entry name parses", script_pack_parse(b.buf, b.len, &p), 1);
 		expect("unterminated entry name refused",
 				script_pack_import(&p, "nnnnnnnn", &d, &dl), 0);
+	}
+
+	// Size and checksum validation. Both fields were ignored originally,
+	// which let a container with the size field two bytes out load here and
+	// fail only on the other engine, and let a half-erased flash region parse
+	// as source.
+	{
+		blob_t b;
+		script_blob_t p;
+
+		blob_start(&b, SCRIPT_FLAG_LANG_LUA, "return 1");
+		blob_finish(&b);
+		expect("valid container accepted", script_pack_parse(b.buf, b.len, &p), 1);
+
+		// One flipped byte in the payload.
+		blob_start(&b, SCRIPT_FLAG_LANG_LUA, "return 1");
+		blob_finish(&b);
+		b.buf[9] ^= 0x40;
+		expect("corrupted payload refused", script_pack_parse(b.buf, b.len, &p), 0);
+
+		// The exact mistake the packer made: size written without the -2.
+		blob_start(&b, SCRIPT_FLAG_LANG_LUA, "return 1");
+		blob_finish(&b);
+		int32_t body = b.len - 6;
+		b.buf[0] = (uint8_t)(body >> 24);
+		b.buf[1] = (uint8_t)(body >> 16);
+		b.buf[2] = (uint8_t)(body >> 8);
+		b.buf[3] = (uint8_t)body;
+		expect("size field off by two refused",
+				script_pack_parse(b.buf, b.len, &p), 0);
+
+		// A size claiming more than the buffer holds.
+		blob_start(&b, SCRIPT_FLAG_LANG_LUA, "return 1");
+		blob_finish(&b);
+		b.buf[0] = 0x7F;
+		expect("oversized size field refused",
+				script_pack_parse(b.buf, b.len, &p), 0);
+
+		// Trailing bytes past the checksummed region must not be reachable:
+		// that is what a partially erased partition looks like.
+		blob_start(&b, SCRIPT_FLAG_LANG_LUA, "x");
+		blob_finish(&b);
+		int32_t real_len = b.len;
+		memset(b.buf + b.len, 0xEE, 64);
+		b.len += 64;
+		expect("trailing flash content ignored",
+				script_pack_parse(b.buf, b.len, &p), 1);
+		expect("payload bounded by the container, not the partition",
+				p.base_len, real_len - SCRIPT_HEADER_SIZE);
 	}
 
 	printf("\n%d checks, %d failures\n", checks, failures);

@@ -290,6 +290,26 @@ int main(int argc, char **argv) {
 		memcpy(blob + n, mod, (size_t)ml);
 		n += ml;
 
+		// Size and checksum, the way VESC Tool writes them: the counted
+		// region starts at the flags word and the stored size is two less
+		// than its length. The parser validates both, so a container built
+		// by hand has to get them right.
+		int32_t body = n - 6;
+		blob[0] = (uint8_t)((body - 2) >> 24);
+		blob[1] = (uint8_t)((body - 2) >> 16);
+		blob[2] = (uint8_t)((body - 2) >> 8);
+		blob[3] = (uint8_t)(body - 2);
+		uint16_t crc = 0;
+		for (int32_t i = 6; i < n; i++) {
+			crc ^= (uint16_t)((uint16_t)blob[i] << 8);
+			for (int k = 0; k < 8; k++) {
+				crc = (crc & 0x8000u) ? (uint16_t)((crc << 1) ^ 0x1021u)
+						: (uint16_t)(crc << 1);
+			}
+		}
+		blob[4] = (uint8_t)(crc >> 8);
+		blob[5] = (uint8_t)crc;
+
 		script_blob_t p;
 		ok("test container parses", script_pack_parse(blob, n, &p));
 		ok("container is lua", p.lang == SCRIPT_LANG_LUA);

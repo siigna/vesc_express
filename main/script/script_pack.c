@@ -51,6 +51,22 @@ static int32_t bounded_strlen(const char *s, int32_t max) {
  * is undefined once that byte reaches 0x80 -- UBSan caught exactly that here,
  * on the first run of the tests below.
  */
+/*
+ * CRC16-CCITT, the polynomial the packet protocol uses, written out here so
+ * this file keeps no dependencies and stays host-testable.
+ */
+static uint16_t pack_crc16(const uint8_t *data, int32_t len) {
+	uint16_t crc = 0;
+	for (int32_t i = 0; i < len; i++) {
+		crc ^= (uint16_t)((uint16_t)data[i] << 8);
+		for (int b = 0; b < 8; b++) {
+			crc = (crc & 0x8000u) ? (uint16_t)((crc << 1) ^ 0x1021u)
+					: (uint16_t)(crc << 1);
+		}
+	}
+	return crc;
+}
+
 static int32_t get_u16(const uint8_t *b, int32_t *ind) {
 	uint32_t v = ((uint32_t)b[*ind] << 8) | (uint32_t)b[*ind + 1];
 	*ind += 2;
@@ -74,11 +90,45 @@ bool script_pack_parse(const uint8_t *blob, int32_t len, script_blob_t *out) {
 		return false;
 	}
 
-	int32_t ind = 6;
+	/*
+	 * Check the stored length and checksum before trusting anything else.
+	 *
+	 * This was skipped originally -- the partition size was used and these
+	 * two fields ignored -- and that cost twice. A container written with the
+	 * size field two bytes out loaded here and failed only on the lisp
+	 * engine, which does check; and a script written into flash that had not
+	 * really been erased parsed as source and surfaced as "unexpected symbol
+	 * near '<238>'" rather than as the bad checksum it was.
+	 *
+	 * The stored size counts from the flags word and is two less than that
+	 * region's length, which is what VESC Tool writes.
+	 */
+	int32_t ind = 0;
+	int32_t stored_size = get_i32(blob, &ind);
+	uint16_t stored_crc = (uint16_t)get_u16(blob, &ind);
+
+	if (stored_size < 2) {
+		return false;
+	}
+
+	int64_t body_len = (int64_t)stored_size + 2;
+	if (body_len > (int64_t)len - 6) {
+		return false;	// longer than the flash holds: truncated or garbage
+	}
+
+	if (pack_crc16(blob + 6, (int32_t)body_len) != stored_crc) {
+		return false;
+	}
+
 	uint16_t flags = (uint16_t)get_u16(blob, &ind);
 
 	const uint8_t *base = blob + SCRIPT_HEADER_SIZE;
-	int32_t base_len = len - SCRIPT_HEADER_SIZE;
+	/*
+	 * Bounded by the container's own length rather than by the partition.
+	 * Anything past the checksummed region is whatever was in flash before
+	 * and must not be reachable as an import payload.
+	 */
+	int32_t base_len = (int32_t)(body_len - 2);
 
 	/*
 	 * The source has to be NUL terminated inside the blob. strnlen returning

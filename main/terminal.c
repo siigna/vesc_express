@@ -39,6 +39,7 @@
 #include "spi_flash_mmap.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
+#include "log_ring.h"
 
 // Settings
 #define CALLBACK_LEN						40
@@ -171,6 +172,32 @@ void terminal_process_string(char *str) {
 		commands_printf("mmap inst free    : %d", spi_flash_mmap_get_free_pages(SPI_FLASH_MMAP_INST));
 
 		commands_printf(" ");
+	} else if (strcmp(argv[0], "log") == 0) {
+		/*
+		 * The kept log, oldest first.
+		 *
+		 * commands_printf delivers to whichever port last spoke to the board,
+		 * so everything said during bring-up went nowhere: by the time a tool
+		 * connects, the lines that would say why the board came up wrong are
+		 * gone. They are kept in a ring now, and this is how to get them
+		 * without a script.
+		 *
+		 * Printing the ring through commands_printf feeds it back into itself,
+		 * so the lines are read out first and only then printed. Without that
+		 * the dump would chase its own tail.
+		 */
+		static char lines[LOG_RING_LINES][LOG_RING_LINE_LEN];
+		int n = log_ring_read(lines, LOG_RING_LINES);
+		uint32_t dropped = log_ring_dropped();
+
+		if (dropped > 0) {
+			commands_printf("... %u earlier lines dropped", (unsigned)dropped);
+		}
+		for (int i = 0;i < n;i++) {
+			commands_printf("%s", lines[i]);
+		}
+		commands_printf("%d lines held", n);
+		commands_printf(" ");
 	} else if (strcmp(argv[0], "can_devs") == 0) {
 		commands_printf("CAN devices seen on the bus the past second:\n");
 		for (int i = 0;i < CAN_STATUS_MSGS_TO_STORE;i++) {
@@ -286,6 +313,9 @@ void terminal_process_string(char *str) {
 
 		commands_printf("mem");
 		commands_printf("  Print memory usage.");
+
+		commands_printf("log");
+		commands_printf("  Print the kept log, including the lines from before anything connected.");
 
 		commands_printf("can_devs");
 		commands_printf("  Print all CAN devices seen on the bus the past second.");

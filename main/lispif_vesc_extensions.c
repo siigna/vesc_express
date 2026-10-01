@@ -88,6 +88,7 @@
 #include "nvs_flash.h"
 #include "esp_sleep.h"
 #include "soc/rtc.h"
+#include "log_ring.h"
 #include "esp_private/esp_clk.h"
 #include "esp_partition.h"
 #include "esp_ota_ops.h"
@@ -856,6 +857,63 @@ static lbm_value ext_get_adc(lbm_value *args, lbm_uint argn) {
 	} else {
 		return ENC_SYM_EERROR;
 	}
+}
+
+/*
+ * (log-lines [max]) -> list of strings, oldest first
+ *
+ * The most recent firmware log lines: everything commands_printf, the
+ * ESP-IDF log and a script's own print produced, including the lines from
+ * before anything connected -- those go to whichever port last spoke to the
+ * board, which during bring-up is none, so they would otherwise be gone.
+ *
+ * Oldest first, which is reading order for a boot log. (log-dropped) says how
+ * many were lost for want of room, because a log that silently loses its
+ * beginning is worse than one that says it did.
+ */
+static lbm_value ext_log_lines(lbm_value *args, lbm_uint argn) {
+	int want = LOG_RING_LINES;
+	if (argn == 1) {
+		want = lbm_dec_as_i32(args[0]);
+	}
+	if (want < 1) {
+		want = 1;
+	}
+	if (want > LOG_RING_LINES) {
+		want = LOG_RING_LINES;
+	}
+
+	static char lines[LOG_RING_LINES][LOG_RING_LINE_LEN];
+	int n = log_ring_read(lines, want);
+
+	lbm_value res = ENC_SYM_NIL;
+	// Built back to front, so consing produces oldest first.
+	for (int i = n - 1; i >= 0; i--) {
+		lbm_value str;
+		if (!lbm_create_array(&str, strlen(lines[i]) + 1)) {
+			return ENC_SYM_MERROR;
+		}
+		strcpy((char *)lbm_dec_str(str), lines[i]);
+		res = lbm_cons(str, res);
+	}
+
+	return res;
+}
+
+static lbm_value ext_log_dropped(lbm_value *args, lbm_uint argn) {
+	(void)args; (void)argn;
+	return lbm_enc_u32(log_ring_dropped());
+}
+
+// (log-add str) -- a line of the script's own, without printing it.
+static lbm_value ext_log_add(lbm_value *args, lbm_uint argn) {
+	LBM_CHECK_ARGN(1);
+	char *str = lbm_dec_str(args[0]);
+	if (!str) {
+		return ENC_SYM_TERROR;
+	}
+	log_ring_add(str);
+	return ENC_SYM_TRUE;
 }
 
 static lbm_value ext_systime(lbm_value *args, lbm_uint argn) {
@@ -6839,6 +6897,9 @@ void lispif_load_vesc_extensions(bool main_found) {
 		lbm_add_extension("bms-zero-offset", ext_bms_zero_offset);
 		lbm_add_extension("bms-st", ext_bms_st);
 		lbm_add_extension("get-adc", ext_get_adc);
+		lbm_add_extension("log-lines", ext_log_lines);
+		lbm_add_extension("log-dropped", ext_log_dropped);
+		lbm_add_extension("log-add", ext_log_add);
 		lbm_add_extension("systime", ext_systime);
 		lbm_add_extension("secs-since", ext_secs_since);
 		lbm_add_extension("event-enable", ext_enable_event);

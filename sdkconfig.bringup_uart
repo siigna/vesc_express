@@ -21,5 +21,18 @@
 # CAN transceiver, a console here would talk onto the bus.
 CONFIG_ESP_CONSOLE_NONE=y
 CONFIG_ESP_CONSOLE_SECONDARY_NONE=y
-CONFIG_LOG_DEFAULT_LEVEL_NONE=y
-CONFIG_LOG_DEFAULT_LEVEL=0
+
+# Logging stays on, which it did not used to.
+#
+# The console being off is why it was turned down to NONE: with nowhere to
+# print, formatting the lines was pure cost. main/log_ring.c changes that --
+# it hooks esp_log_set_vprintf, which is called whether or not a console
+# exists, so the lines are kept in a ring and read back with the `log`
+# terminal command or shown on the display itself.
+#
+# So a board with no console now has a boot log. That is the whole reason the
+# ring exists: on this hardware the lines saying which panel came up and
+# whether touch answered had nowhere to go at all.
+CONFIG_LOG_DEFAULT_LEVEL_NONE=
+CONFIG_LOG_DEFAULT_LEVEL_INFO=y
+CONFIG_LOG_DEFAULT_LEVEL=3

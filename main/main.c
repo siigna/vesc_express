@@ -58,6 +58,7 @@
 
 #include <string.h>
 #include <sys/time.h>
+#include "log_ring.h"
 
 // Global variables
 volatile backup_data backup;
@@ -70,6 +71,13 @@ static void terminal_nmea(int argc, const char **argv);
 static void terminal_ublox_reinit(int argc, const char **argv);
 
 void app_main(void) {
+	// First, so that everything said during bring-up is kept. The ring is
+	// what a display reads back to show its own boot log; without it those
+	// lines go to whichever port last spoke to the board, which during
+	// bring-up is none.
+	log_ring_init();
+	log_ring_hook_esp_log();
+
 	struct timeval tv;
 	gettimeofday(&tv, NULL);
 	tv.tv_sec = 0;

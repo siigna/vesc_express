@@ -76,6 +76,8 @@
 #include "esp_wifi.h"
 #endif
 
+#include "log_ring.h"
+
 // Settings
 #define PRINT_BUFFER_SIZE	400
 
@@ -1178,6 +1180,10 @@ int commands_printf(const char* format, ...) {
 	int len_to_print = (len < (PRINT_BUFFER_SIZE - 1)) ? len + 1 : PRINT_BUFFER_SIZE;
 
 	if(len > 0) {
+		// Kept as well as sent. The packet goes to whichever port last spoke
+		// to the board, so a line printed before anything connected goes
+		// nowhere -- which is the whole of bring-up.
+		log_ring_add(print_buffer + 1);
 		commands_send_packet((unsigned char*)print_buffer, len_to_print);
 	}
 
@@ -1246,6 +1252,10 @@ int commands_printf_lisp(const char* format, ...) {
 		if (print_buffer[len_to_print - 1] == '\n') {
 			len_to_print--;
 		}
+
+		// Kept as well as sent or mirrored, for the same reason as above:
+		// this is the path a script's own print takes.
+		log_ring_addn(print_buffer + 1, (size_t)(len_to_print - 1));
 
 		/*
 		 * With no comm port to deliver to, mirror script output to the

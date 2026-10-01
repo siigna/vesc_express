@@ -12,6 +12,7 @@ set(COMPONENT_SRCS
 "packet.c"
 "crc.c"
 "commands.c"
+"log_ring.c"
 "conf_custom.c"
 "terminal.c"
 "mempools.c"

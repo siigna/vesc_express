@@ -1,6 +1,6 @@
 /*
   Copyright 2025 Joel Svensson              svenssonjoel@yahoo.se
-  Copyright 2025 Stephen Bouche
+  Copyright 2026 Stephen Bouche
 
   LispBM is free software: you can redistribute it and/or modify
   it under the terms of the GNU General Public License as published by

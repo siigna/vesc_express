@@ -2,7 +2,7 @@
 	Copyright 2023 Benjamin Vedder		benjamin@vedder.se
 	Copyright 2023 Joel Svensson		svenssonjoel@yahoo.se
 	Copyright 2023 Rasmus Söderhielm	rasmus.soderhielm@gmail.com
-	Copyright 2025 Stephen Bouche
+	Copyright 2026 Stephen Bouche
 
 	This file is part of the VESC firmware.
 

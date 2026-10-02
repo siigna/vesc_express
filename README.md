@@ -1,6 +1,60 @@
-# VESC Express
+# ESCargot Express
 
-The is the codebase for the VESC Express, which is a WiFi and Bluetooth-enabled logger and IO-board. At the moment it is tested and runs on the ESP32C3, ESP32C6 and ESP32S3 but other ESP32 devices can be added.
+Firmware for WiFi- and Bluetooth-enabled logger, IO and display boards built on
+the ESP32. A fork of the VESC® Express firmware, with a Lua script engine and
+a display stack added. Tested on the ESP32-C3, C6, S3 and P4.
+
+**Not affiliated with, endorsed by, or certified by Mr. Benjamin Vedder.**
+VESC® is his registered trademark; see [TRADEMARKS.md](TRADEMARKS.md). This
+firmware is compatible with VESC® Tool, which is what uploads scripts and
+writes the configuration.
+
+## What this fork adds
+
+### A Lua script engine
+
+Runs alongside LispBM rather than replacing it here — the ESP32 has the flash
+for both. Lua 5.4 in 32-bit mode, with the same container format and the same
+`COMM_LISP_*` packets, so VESC® Tool's existing upload, erase and REPL carry
+Lua unchanged.
+
+The engine itself has no firmware dependencies: everything it needs from its
+host arrives through a config struct as a function pointer, which is what lets
+`main/script/test` exercise the sandbox, the memory ceiling, the interrupt hook
+and `require` resolution on a host. A script engine that can only be tested by
+flashing is one whose failure modes get found on a vehicle.
+
+`main/script/luaif.c` is the firmware adapter. The engine core
+(`script_lua.c`, `script_pack.c`, `script_event.h`) is kept **byte-identical**
+with the controller firmware's copy, so one interpreter runs on both a display
+and a motor controller.
+
+### A display stack
+
+Drivers for ST7701 RGB, JD9165, ICNA3306 and others; a TTF renderer; Clay
+layout; an offline render harness that produces PNGs on a host with no
+hardware, which is how the dash pages are regression-tested pixel by pixel.
+
+### Bring-up and diagnostics
+
+A 64-line log ring readable from a script or the terminal, touch statistics,
+and `tools/vesc_script.py` for driving a board over USB — upload, REPL, app
+data, log tail.
+
+## Tests
+
+```bash
+cd main/script/test && make && ./test_script_lua packed.bin
+cd main/display/test && make && ./test_rgb_convert
+```
+
+All host-side, no board required: 142 checks on the engine, 42 on the
+container, 72 on the pixel conversions.
+
+## Upstream
+
+`upstream` points at `vedderb/vesc_express` over HTTPS and is pull-only; its
+push URL is deliberately set to `no-push`. Changes go to `origin`.
 
 ## Toolchain
 
@@ -38,7 +92,7 @@ Once the toolchain is set up in the current path, the project can be built with
 idf.py build
 ```
 
-That will create vesc_express.bin in the build directory, which can be used with the bootloader in VESC Tool. If the ESP32c3 does not come with firmware preinstalled, the USB-port can be used for flashing firmware using the built-in bootloader. That also requires bootloader.bin and partition-table.bin which also can be found in the build directory. This can be done from VESC Tool or using idf.py.
+That will create vesc_express.bin in the build directory, which can be used with the bootloader in VESC® Tool. If the ESP32c3 does not come with firmware preinstalled, the USB-port can be used for flashing firmware using the built-in bootloader. That also requires bootloader.bin and partition-table.bin which also can be found in the build directory. This can be done from VESC® Tool or using idf.py.
 
 All targets can be built with
 

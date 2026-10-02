@@ -1,5 +1,6 @@
 /*
 	Copyright 2025
+	Copyright 2025 Stephen Bouche
 
 	This file is part of the VESC firmware.
 

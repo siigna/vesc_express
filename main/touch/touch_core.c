@@ -1,5 +1,10 @@
 /*
+	Copyright Benjamin Vedder
+	Copyright DovPear
 	Copyright 2025
+
+	Parts of this file were moved here from main/hwconf/lb/hw_lb_if.c, main/lispif_vesc_extensions.c, main/touch/lispif_touch_extensions.c;
+	git blame -C records 122 lines as DovPear's, 29 lines as DovPearX's, 4 lines as Benjamin Vedder's.
 
 	This file is part of the ESCargot firmware.
 

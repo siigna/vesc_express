@@ -1,0 +1,2 @@
+source /home/vesc/vesc_express/build_p4_fast/gdbinit/symbols
+source /home/vesc/vesc_express/build_p4_fast/gdbinit/connect

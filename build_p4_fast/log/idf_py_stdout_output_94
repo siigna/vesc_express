@@ -1,0 +1,260 @@
+Command: ninja all
+[1/27] Building C object esp-idf/main/CMakeFiles/__idf_main.dir/comm_ble.c.obj
+In file included from /home/vesc/vesc_express/main/adc.h:24,
+                 from /home/vesc/vesc_express/main/hwconf/hw.h:24,
+                 from /home/vesc/vesc_express/main/main.h:25,
+                 from /home/vesc/vesc_express/main/conf_general.h:39,
+                 from /home/vesc/vesc_express/main/comm_ble.c:50:
+/root/esp/esp-idf-v5.5.4/components/driver/deprecated/driver/adc.h:19:2: warning: #warning "legacy adc driver is deprecated, please migrate to use esp_adc/adc_oneshot.h and esp_adc/adc_continuous.h for oneshot mode and continuous mode drivers respectively" [-Wcpp]
+   19 | #warning "legacy adc driver is deprecated, please migrate to use esp_adc/adc_oneshot.h and esp_adc/adc_continuous.h for oneshot mode and continuous mode drivers respectively"
+      |  ^~~~~~~
+[2/27] Building C object esp-idf/main/CMakeFiles/__idf_main.dir/adc.c.obj
+In file included from /home/vesc/vesc_express/main/adc.h:24,
+                 from /home/vesc/vesc_express/main/adc.c:20:
+/root/esp/esp-idf-v5.5.4/components/driver/deprecated/driver/adc.h:19:2: warning: #warning "legacy adc driver is deprecated, please migrate to use esp_adc/adc_oneshot.h and esp_adc/adc_continuous.h for oneshot mode and continuous mode drivers respectively" [-Wcpp]
+   19 | #warning "legacy adc driver is deprecated, please migrate to use esp_adc/adc_oneshot.h and esp_adc/adc_continuous.h for oneshot mode and continuous mode drivers respectively"
+      |  ^~~~~~~
+[3/27] Building C object esp-idf/main/CMakeFiles/__idf_main.dir/comm_uart.c.obj
+In file included from /home/vesc/vesc_express/main/adc.h:24,
+                 from /home/vesc/vesc_express/main/hwconf/hw.h:24,
+                 from /home/vesc/vesc_express/main/main.h:25,
+                 from /home/vesc/vesc_express/main/conf_general.h:39,
+                 from /home/vesc/vesc_express/main/comm_uart.c:20:
+/root/esp/esp-idf-v5.5.4/components/driver/deprecated/driver/adc.h:19:2: warning: #warning "legacy adc driver is deprecated, please migrate to use esp_adc/adc_oneshot.h and esp_adc/adc_continuous.h for oneshot mode and continuous mode drivers respectively" [-Wcpp]
+   19 | #warning "legacy adc driver is deprecated, please migrate to use esp_adc/adc_oneshot.h and esp_adc/adc_continuous.h for oneshot mode and continuous mode drivers respectively"
+      |  ^~~~~~~
+[4/27] Building C object esp-idf/main/CMakeFiles/__idf_main.dir/comm_wifi.c.obj
+In file included from /home/vesc/vesc_express/main/adc.h:24,
+                 from /home/vesc/vesc_express/main/hwconf/hw.h:24,
+                 from /home/vesc/vesc_express/main/main.h:25,
+                 from /home/vesc/vesc_express/main/conf_general.h:39,
+                 from /home/vesc/vesc_express/main/comm_wifi.c:23:
+/root/esp/esp-idf-v5.5.4/components/driver/deprecated/driver/adc.h:19:2: warning: #warning "legacy adc driver is deprecated, please migrate to use esp_adc/adc_oneshot.h and esp_adc/adc_continuous.h for oneshot mode and continuous mode drivers respectively" [-Wcpp]
+   19 | #warning "legacy adc driver is deprecated, please migrate to use esp_adc/adc_oneshot.h and esp_adc/adc_continuous.h for oneshot mode and continuous mode drivers respectively"
+      |  ^~~~~~~
+[5/27] Building C object esp-idf/main/CMakeFiles/__idf_main.dir/main.c.obj
+In file included from /home/vesc/vesc_express/main/adc.h:24,
+                 from /home/vesc/vesc_express/main/hwconf/hw.h:24,
+                 from /home/vesc/vesc_express/main/main.h:25,
+                 from /home/vesc/vesc_express/main/conf_general.h:39,
+                 from /home/vesc/vesc_express/main/main.c:26:
+/root/esp/esp-idf-v5.5.4/components/driver/deprecated/driver/adc.h:19:2: warning: #warning "legacy adc driver is deprecated, please migrate to use esp_adc/adc_oneshot.h and esp_adc/adc_continuous.h for oneshot mode and continuous mode drivers respectively" [-Wcpp]
+   19 | #warning "legacy adc driver is deprecated, please migrate to use esp_adc/adc_oneshot.h and esp_adc/adc_continuous.h for oneshot mode and continuous mode drivers respectively"
+      |  ^~~~~~~
+[6/27] Building C object esp-idf/main/CMakeFiles/__idf_main.dir/hwconf/hw.c.obj
+In file included from /home/vesc/vesc_express/main/adc.h:24,
+                 from /home/vesc/vesc_express/main/hwconf/hw.h:24,
+                 from /home/vesc/vesc_express/main/main.h:25,
+                 from /home/vesc/vesc_express/main/conf_general.h:39,
+                 from /home/vesc/vesc_express/main/hwconf/hw.c:20:
+/root/esp/esp-idf-v5.5.4/components/driver/deprecated/driver/adc.h:19:2: warning: #warning "legacy adc driver is deprecated, please migrate to use esp_adc/adc_oneshot.h and esp_adc/adc_continuous.h for oneshot mode and continuous mode drivers respectively" [-Wcpp]
+   19 | #warning "legacy adc driver is deprecated, please migrate to use esp_adc/adc_oneshot.h and esp_adc/adc_continuous.h for oneshot mode and continuous mode drivers respectively"
+      |  ^~~~~~~
+[7/27] Building C object esp-idf/main/CMakeFiles/__idf_main.dir/config/confsrc.c.obj
+In file included from /home/vesc/vesc_express/main/adc.h:24,
+                 from /home/vesc/vesc_express/main/hwconf/hw.h:24,
+                 from /home/vesc/vesc_express/main/main.h:25,
+                 from /home/vesc/vesc_express/main/conf_general.h:39,
+                 from /home/vesc/vesc_express/main/config/confsrc.c:20:
+/root/esp/esp-idf-v5.5.4/components/driver/deprecated/driver/adc.h:19:2: warning: #warning "legacy adc driver is deprecated, please migrate to use esp_adc/adc_oneshot.h and esp_adc/adc_continuous.h for oneshot mode and continuous mode drivers respectively" [-Wcpp]
+   19 | #warning "legacy adc driver is deprecated, please migrate to use esp_adc/adc_oneshot.h and esp_adc/adc_continuous.h for oneshot mode and continuous mode drivers respectively"
+      |  ^~~~~~~
+[8/27] Building C object esp-idf/main/CMakeFiles/__idf_main.dir/terminal.c.obj
+In file included from /home/vesc/vesc_express/main/adc.h:24,
+                 from /home/vesc/vesc_express/main/hwconf/hw.h:24,
+                 from /home/vesc/vesc_express/main/main.h:25,
+                 from /home/vesc/vesc_express/main/conf_general.h:39,
+                 from /home/vesc/vesc_express/main/terminal.c:20:
+/root/esp/esp-idf-v5.5.4/components/driver/deprecated/driver/adc.h:19:2: warning: #warning "legacy adc driver is deprecated, please migrate to use esp_adc/adc_oneshot.h and esp_adc/adc_continuous.h for oneshot mode and continuous mode drivers respectively" [-Wcpp]
+   19 | #warning "legacy adc driver is deprecated, please migrate to use esp_adc/adc_oneshot.h and esp_adc/adc_continuous.h for oneshot mode and continuous mode drivers respectively"
+      |  ^~~~~~~
+[9/27] Building C object esp-idf/main/CMakeFiles/__idf_main.dir/ble/custom_ble.c.obj
+In file included from /home/vesc/vesc_express/main/adc.h:24,
+                 from /home/vesc/vesc_express/main/hwconf/hw.h:24,
+                 from /home/vesc/vesc_express/main/main.h:25,
+                 from /home/vesc/vesc_express/main/conf_general.h:39,
+                 from /home/vesc/vesc_express/main/ble/custom_ble.c:53:
+/root/esp/esp-idf-v5.5.4/components/driver/deprecated/driver/adc.h:19:2: warning: #warning "legacy adc driver is deprecated, please migrate to use esp_adc/adc_oneshot.h and esp_adc/adc_continuous.h for oneshot mode and continuous mode drivers respectively" [-Wcpp]
+   19 | #warning "legacy adc driver is deprecated, please migrate to use esp_adc/adc_oneshot.h and esp_adc/adc_continuous.h for oneshot mode and continuous mode drivers respectively"
+      |  ^~~~~~~
+[10/27] Building C object esp-idf/main/CMakeFiles/__idf_main.dir/log.c.obj
+In file included from /home/vesc/vesc_express/main/adc.h:24,
+                 from /home/vesc/vesc_express/main/hwconf/hw.h:24,
+                 from /home/vesc/vesc_express/main/main.h:25,
+                 from /home/vesc/vesc_express/main/conf_general.h:39,
+                 from /home/vesc/vesc_express/main/log.c:21:
+/root/esp/esp-idf-v5.5.4/components/driver/deprecated/driver/adc.h:19:2: warning: #warning "legacy adc driver is deprecated, please migrate to use esp_adc/adc_oneshot.h and esp_adc/adc_continuous.h for oneshot mode and continuous mode drivers respectively" [-Wcpp]
+   19 | #warning "legacy adc driver is deprecated, please migrate to use esp_adc/adc_oneshot.h and esp_adc/adc_continuous.h for oneshot mode and continuous mode drivers respectively"
+      |  ^~~~~~~
+[11/27] Building C object esp-idf/main/CMakeFiles/__idf_main.dir/bms.c.obj
+In file included from /home/vesc/vesc_express/main/adc.h:24,
+                 from /home/vesc/vesc_express/main/hwconf/hw.h:24,
+                 from /home/vesc/vesc_express/main/main.h:25,
+                 from /home/vesc/vesc_express/main/bms.c:27:
+/root/esp/esp-idf-v5.5.4/components/driver/deprecated/driver/adc.h:19:2: warning: #warning "legacy adc driver is deprecated, please migrate to use esp_adc/adc_oneshot.h and esp_adc/adc_continuous.h for oneshot mode and continuous mode drivers respectively" [-Wcpp]
+   19 | #warning "legacy adc driver is deprecated, please migrate to use esp_adc/adc_oneshot.h and esp_adc/adc_continuous.h for oneshot mode and continuous mode drivers respectively"
+      |  ^~~~~~~
+[12/27] Building C object esp-idf/main/CMakeFiles/__idf_main.dir/lispif_c_lib.c.obj
+In file included from /home/vesc/vesc_express/main/adc.h:24,
+                 from /home/vesc/vesc_express/main/hwconf/hw.h:24,
+                 from /home/vesc/vesc_express/main/main.h:25,
+                 from /home/vesc/vesc_express/main/conf_general.h:39,
+                 from /home/vesc/vesc_express/main/lispif_c_lib.c:38:
+/root/esp/esp-idf-v5.5.4/components/driver/deprecated/driver/adc.h:19:2: warning: #warning "legacy adc driver is deprecated, please migrate to use esp_adc/adc_oneshot.h and esp_adc/adc_continuous.h for oneshot mode and continuous mode drivers respectively" [-Wcpp]
+   19 | #warning "legacy adc driver is deprecated, please migrate to use esp_adc/adc_oneshot.h and esp_adc/adc_continuous.h for oneshot mode and continuous mode drivers respectively"
+      |  ^~~~~~~
+[13/27] Performing build step for 'bootloader'
+[1/1] cd /home/vesc/vesc_express/build_p4_fast/bootloader/esp-idf/esptool_py && /root/.espressif/python_env/idf5.5_py3.14_env/bin/python /root/esp/esp-idf-v5.5.4/components/partition_table/check_sizes.py --offset 0x8000 bootloader 0x2000 /home/vesc/vesc_express/build_p4_fast/bootloader/bootloader.bin
+Bootloader binary size 0x5d40 bytes. 0x2c0 bytes (3%) free.
+[14/27] No install step for 'bootloader'
+[15/27] Building C object esp-idf/main/CMakeFiles/__idf_main.dir/drivers/hwspi.c.obj
+In file included from /home/vesc/vesc_express/main/adc.h:24,
+                 from /home/vesc/vesc_express/main/hwconf/hw.h:24,
+                 from /home/vesc/vesc_express/main/main.h:25,
+                 from /home/vesc/vesc_express/main/conf_general.h:39,
+                 from /home/vesc/vesc_express/main/drivers/hwspi.c:28:
+/root/esp/esp-idf-v5.5.4/components/driver/deprecated/driver/adc.h:19:2: warning: #warning "legacy adc driver is deprecated, please migrate to use esp_adc/adc_oneshot.h and esp_adc/adc_continuous.h for oneshot mode and continuous mode drivers respectively" [-Wcpp]
+   19 | #warning "legacy adc driver is deprecated, please migrate to use esp_adc/adc_oneshot.h and esp_adc/adc_continuous.h for oneshot mode and continuous mode drivers respectively"
+      |  ^~~~~~~
+[16/27] Building C object esp-idf/main/CMakeFiles/__idf_main.dir/commands.c.obj
+In file included from /home/vesc/vesc_express/main/adc.h:24,
+                 from /home/vesc/vesc_express/main/hwconf/hw.h:24,
+                 from /home/vesc/vesc_express/main/main.h:25,
+                 from /home/vesc/vesc_express/main/conf_general.h:39,
+                 from /home/vesc/vesc_express/main/commands.c:36:
+/root/esp/esp-idf-v5.5.4/components/driver/deprecated/driver/adc.h:19:2: warning: #warning "legacy adc driver is deprecated, please migrate to use esp_adc/adc_oneshot.h and esp_adc/adc_continuous.h for oneshot mode and continuous mode drivers respectively" [-Wcpp]
+   19 | #warning "legacy adc driver is deprecated, please migrate to use esp_adc/adc_oneshot.h and esp_adc/adc_continuous.h for oneshot mode and continuous mode drivers respectively"
+      |  ^~~~~~~
+[17/27] Completed 'bootloader'
+[18/27] Building C object esp-idf/main/CMakeFiles/__idf_main.dir/lispif.c.obj
+In file included from /home/vesc/vesc_express/main/adc.h:24,
+                 from /home/vesc/vesc_express/main/hwconf/hw.h:24,
+                 from /home/vesc/vesc_express/main/main.h:25,
+                 from /home/vesc/vesc_express/main/lispif.c:24:
+/root/esp/esp-idf-v5.5.4/components/driver/deprecated/driver/adc.h:19:2: warning: #warning "legacy adc driver is deprecated, please migrate to use esp_adc/adc_oneshot.h and esp_adc/adc_continuous.h for oneshot mode and continuous mode drivers respectively" [-Wcpp]
+   19 | #warning "legacy adc driver is deprecated, please migrate to use esp_adc/adc_oneshot.h and esp_adc/adc_continuous.h for oneshot mode and continuous mode drivers respectively"
+      |  ^~~~~~~
+[19/27] Building C object esp-idf/main/CMakeFiles/__idf_main.dir/display/disp_axs15231.c.obj
+In file included from /home/vesc/vesc_express/main/adc.h:24,
+                 from /home/vesc/vesc_express/main/hwconf/hw.h:24,
+                 from /home/vesc/vesc_express/main/main.h:25,
+                 from /home/vesc/vesc_express/main/display/disp_axs15231.c:28:
+/root/esp/esp-idf-v5.5.4/components/driver/deprecated/driver/adc.h:19:2: warning: #warning "legacy adc driver is deprecated, please migrate to use esp_adc/adc_oneshot.h and esp_adc/adc_continuous.h for oneshot mode and continuous mode drivers respectively" [-Wcpp]
+   19 | #warning "legacy adc driver is deprecated, please migrate to use esp_adc/adc_oneshot.h and esp_adc/adc_continuous.h for oneshot mode and continuous mode drivers respectively"
+      |  ^~~~~~~
+[20/27] Building C object esp-idf/main/CMakeFiles/__idf_main.dir/comm_can.c.obj
+In file included from /home/vesc/vesc_express/main/adc.h:24,
+                 from /home/vesc/vesc_express/main/hwconf/hw.h:24,
+                 from /home/vesc/vesc_express/main/main.h:25,
+                 from /home/vesc/vesc_express/main/conf_general.h:39,
+                 from /home/vesc/vesc_express/main/comm_can.c:28:
+/root/esp/esp-idf-v5.5.4/components/driver/deprecated/driver/adc.h:19:2: warning: #warning "legacy adc driver is deprecated, please migrate to use esp_adc/adc_oneshot.h and esp_adc/adc_continuous.h for oneshot mode and continuous mode drivers respectively" [-Wcpp]
+   19 | #warning "legacy adc driver is deprecated, please migrate to use esp_adc/adc_oneshot.h and esp_adc/adc_continuous.h for oneshot mode and continuous mode drivers respectively"
+      |  ^~~~~~~
+[21/27] Building C object esp-idf/main/CMakeFiles/__idf_main.dir/ublox.c.obj
+In file included from /home/vesc/vesc_express/main/adc.h:24,
+                 from /home/vesc/vesc_express/main/hwconf/hw.h:24,
+                 from /home/vesc/vesc_express/main/main.h:25,
+                 from /home/vesc/vesc_express/main/conf_general.h:39,
+                 from /home/vesc/vesc_express/main/ublox.h:21,
+                 from /home/vesc/vesc_express/main/ublox.c:18:
+/root/esp/esp-idf-v5.5.4/components/driver/deprecated/driver/adc.h:19:2: warning: #warning "legacy adc driver is deprecated, please migrate to use esp_adc/adc_oneshot.h and esp_adc/adc_continuous.h for oneshot mode and continuous mode drivers respectively" [-Wcpp]
+   19 | #warning "legacy adc driver is deprecated, please migrate to use esp_adc/adc_oneshot.h and esp_adc/adc_continuous.h for oneshot mode and continuous mode drivers respectively"
+      |  ^~~~~~~
+[22/27] Building C object esp-idf/main/CMakeFiles/__idf_main.dir/lispif_vesc_extensions.c.obj
+In file included from /home/vesc/vesc_express/main/adc.h:24,
+                 from /home/vesc/vesc_express/main/hwconf/hw.h:24,
+                 from /home/vesc/vesc_express/main/main.h:25,
+                 from /home/vesc/vesc_express/main/lispif_vesc_extensions.c:29:
+/root/esp/esp-idf-v5.5.4/components/driver/deprecated/driver/adc.h:19:2: warning: #warning "legacy adc driver is deprecated, please migrate to use esp_adc/adc_oneshot.h and esp_adc/adc_continuous.h for oneshot mode and continuous mode drivers respectively" [-Wcpp]
+   19 | #warning "legacy adc driver is deprecated, please migrate to use esp_adc/adc_oneshot.h and esp_adc/adc_continuous.h for oneshot mode and continuous mode drivers respectively"
+      |  ^~~~~~~
+/home/vesc/vesc_express/main/lispif_vesc_extensions.c:3686:18: warning: 'ext_empty' defined but not used [-Wunused-function]
+ 3686 | static lbm_value ext_empty(lbm_value *args, lbm_uint argn) {
+      |                  ^~~~~~~~~
+[23/27] Linking C static library esp-idf/main/libmain.a
+[24/27] Generating esp-idf/esp_system/ld/sections.ld
+warning: the int symbol ESP_HOSTED_BT_UART_PORT_ESP32 (defined at /home/vesc/vesc_express/managed_components/espressif__esp_hosted/coprocessor/eh_cp_core/Kconfig.ext:103) has a non-int range [BTDM_CTRL_HCI_UART_NO (undefined), BTDM_CTRL_HCI_UART_NO (undefined)]
+warning: the int symbol ESP_HOSTED_BT_UART_BAUDRATE_ESP32 (defined at /home/vesc/vesc_express/managed_components/espressif__esp_hosted/coprocessor/eh_cp_core/Kconfig.ext:109) has a non-int range [BTDM_CTRL_HCI_UART_BAUDRATE (undefined), BTDM_CTRL_HCI_UART_BAUDRATE (undefined)]
+warning: the int symbol ESP_HOSTED_BT_UART_PORT (defined at /home/vesc/vesc_express/managed_components/espressif__esp_hosted/coprocessor/eh_cp_core/Kconfig.ext:121) has a non-int default BT_LE_HCI_UART_PORT (undefined)
+warning: the int symbol ESP_HOSTED_BT_UART_TX_PIN (defined at /home/vesc/vesc_express/managed_components/espressif__esp_hosted/coprocessor/eh_cp_core/Kconfig.ext:128) has a non-int default BT_LE_HCI_UART_TX_PIN (undefined)
+warning: the int symbol ESP_HOSTED_BT_UART_RX_PIN (defined at /home/vesc/vesc_express/managed_components/espressif__esp_hosted/coprocessor/eh_cp_core/Kconfig.ext:135) has a non-int default BT_LE_HCI_UART_RX_PIN (undefined)
+warning: the int symbol ESP_HOSTED_BT_UART_RTS_PIN (defined at /home/vesc/vesc_express/managed_components/espressif__esp_hosted/coprocessor/eh_cp_core/Kconfig.ext:142) has a non-int default BT_LE_HCI_UART_RTS_PIN (undefined)
+warning: the int symbol ESP_HOSTED_BT_UART_CTS_PIN (defined at /home/vesc/vesc_express/managed_components/espressif__esp_hosted/coprocessor/eh_cp_core/Kconfig.ext:150) has a non-int default BT_LE_HCI_UART_CTS_PIN (undefined)
+warning: the int symbol ESP_HOSTED_BT_UART_BAUDRATE (defined at /home/vesc/vesc_express/managed_components/espressif__esp_hosted/coprocessor/eh_cp_core/Kconfig.ext:158) has a non-int default BT_LE_HCI_UART_BAUD (undefined)
+info: INFO: Symbol ESP_ESP32C5_SPI_RASPI_MATING_BOARD defined in multiple locations (see below). Please check if this is a correct behavior or a random name match:
+    /home/vesc/vesc_express/managed_components/espressif__esp_hosted/host/Kconfig.ext:112
+    /home/vesc/vesc_express/managed_components/espressif__esp_hosted/coprocessor/Kconfig.ext:71
+info: INFO: Symbol ESP_HOSTED_P4_DEV_BOARD_NONE defined in multiple locations (see below). Please check if this is a correct behavior or a random name match:
+    /home/vesc/vesc_express/managed_components/espressif__esp_hosted/host/Kconfig.ext:116
+    /home/vesc/vesc_express/managed_components/espressif__esp_hosted/coprocessor/Kconfig.ext:75
+info: INFO: Symbol ESP_HOSTED_P4_DEV_BOARD_FUNC_BOARD defined in multiple locations (see below). Please check if this is a correct behavior or a random name match:
+    /home/vesc/vesc_express/managed_components/espressif__esp_hosted/host/Kconfig.ext:119
+    /home/vesc/vesc_express/managed_components/espressif__esp_hosted/coprocessor/Kconfig.ext:78
+info: INFO: Symbol ESP_HOSTED_C2_C5_MODULE_SUB_BOARD defined in multiple locations (see below). Please check if this is a correct behavior or a random name match:
+    /home/vesc/vesc_express/managed_components/espressif__esp_hosted/host/Kconfig.ext:139
+    /home/vesc/vesc_express/managed_components/espressif__esp_hosted/coprocessor/Kconfig.ext:82
+info: INFO: Symbol LWIP_TCP_LOCAL_PORT_RANGE_START defined in multiple locations (see below). Please check if this is a correct behavior or a random name match:
+    /home/vesc/vesc_express/managed_components/espressif__esp_hosted/coprocessor/features/eh_cp_feat_nw_split/Kconfig.ext:84
+    /home/vesc/vesc_express/managed_components/espressif__esp_hosted/host/features/eh_host_feat_nw_split/Kconfig.ext:72
+info: INFO: Symbol LWIP_TCP_LOCAL_PORT_RANGE_END defined in multiple locations (see below). Please check if this is a correct behavior or a random name match:
+    /home/vesc/vesc_express/managed_components/espressif__esp_hosted/host/features/eh_host_feat_nw_split/Kconfig.ext:78
+    /home/vesc/vesc_express/managed_components/espressif__esp_hosted/coprocessor/features/eh_cp_feat_nw_split/Kconfig.ext:92
+info: INFO: Symbol LWIP_UDP_LOCAL_PORT_RANGE_START defined in multiple locations (see below). Please check if this is a correct behavior or a random name match:
+    /home/vesc/vesc_express/managed_components/espressif__esp_hosted/host/features/eh_host_feat_nw_split/Kconfig.ext:84
+    /home/vesc/vesc_express/managed_components/espressif__esp_hosted/coprocessor/features/eh_cp_feat_nw_split/Kconfig.ext:100
+info: INFO: Symbol LWIP_UDP_LOCAL_PORT_RANGE_END defined in multiple locations (see below). Please check if this is a correct behavior or a random name match:
+    /home/vesc/vesc_express/managed_components/espressif__esp_hosted/host/features/eh_host_feat_nw_split/Kconfig.ext:90
+    /home/vesc/vesc_express/managed_components/espressif__esp_hosted/coprocessor/features/eh_cp_feat_nw_split/Kconfig.ext:108
+info: INFO: Symbol LWIP_TCP_REMOTE_PORT_RANGE_START defined in multiple locations (see below). Please check if this is a correct behavior or a random name match:
+    /home/vesc/vesc_express/managed_components/espressif__esp_hosted/host/features/eh_host_feat_nw_split/Kconfig.ext:98
+    /home/vesc/vesc_express/managed_components/espressif__esp_hosted/coprocessor/features/eh_cp_feat_nw_split/Kconfig.ext:118
+info: INFO: Symbol LWIP_TCP_REMOTE_PORT_RANGE_END defined in multiple locations (see below). Please check if this is a correct behavior or a random name match:
+    /home/vesc/vesc_express/managed_components/espressif__esp_hosted/coprocessor/features/eh_cp_feat_nw_split/Kconfig.ext:126
+    /home/vesc/vesc_express/managed_components/espressif__esp_hosted/host/features/eh_host_feat_nw_split/Kconfig.ext:104
+info: INFO: Symbol LWIP_UDP_REMOTE_PORT_RANGE_START defined in multiple locations (see below). Please check if this is a correct behavior or a random name match:
+    /home/vesc/vesc_express/managed_components/espressif__esp_hosted/host/features/eh_host_feat_nw_split/Kconfig.ext:110
+    /home/vesc/vesc_express/managed_components/espressif__esp_hosted/coprocessor/features/eh_cp_feat_nw_split/Kconfig.ext:134
+info: INFO: Symbol LWIP_UDP_REMOTE_PORT_RANGE_END defined in multiple locations (see below). Please check if this is a correct behavior or a random name match:
+    /home/vesc/vesc_express/managed_components/espressif__esp_hosted/host/features/eh_host_feat_nw_split/Kconfig.ext:116
+    /home/vesc/vesc_express/managed_components/espressif__esp_hosted/coprocessor/features/eh_cp_feat_nw_split/Kconfig.ext:142
+info: INFO: Symbol ESP_HOSTED_HOST_RESET_GPIO defined in multiple locations (see below). Please check if this is a correct behavior or a random name match:
+    /home/vesc/vesc_express/managed_components/espressif__esp_hosted/host/mcu/eh_host_mcu_transport/Kconfig.host.spi_hd:50
+    /home/vesc/vesc_express/managed_components/espressif__esp_hosted/host/mcu/eh_host_mcu_transport/Kconfig.host.uart:14
+    /home/vesc/vesc_express/managed_components/espressif__esp_hosted/host/mcu/eh_host_mcu_transport/Kconfig.host.sdio:214
+    /home/vesc/vesc_express/managed_components/espressif__esp_hosted/host/mcu/eh_host_mcu_transport/Kconfig.host.spi:44
+info: INFO: Symbol ESP_HOSTED_HOST_RESET_ACTIVE_LOW defined in multiple locations (see below). Please check if this is a correct behavior or a random name match:
+    /home/vesc/vesc_express/managed_components/espressif__esp_hosted/host/mcu/eh_host_mcu_transport/Kconfig.host.uart:32
+    /home/vesc/vesc_express/managed_components/espressif__esp_hosted/host/mcu/eh_host_mcu_transport/Kconfig.host.spi_hd:71
+    /home/vesc/vesc_express/managed_components/espressif__esp_hosted/host/mcu/eh_host_mcu_transport/Kconfig.host.spi:56
+    /home/vesc/vesc_express/managed_components/espressif__esp_hosted/host/mcu/eh_host_mcu_transport/Kconfig.host.sdio:236
+info: INFO: Symbol ESP_HOSTED_HOST_SDIO_PIN_CMD defined in multiple locations (see below). Please check if this is a correct behavior or a random name match:
+    /home/vesc/vesc_express/managed_components/espressif__esp_hosted/host/mcu/eh_host_mcu_transport/Kconfig.host.sdio:286
+    /home/vesc/vesc_express/managed_components/espressif__esp_hosted/host/mcu/eh_host_mcu_transport/Kconfig.host.sdio:245
+info: INFO: Symbol ESP_HOSTED_HOST_SDIO_PIN_CLK defined in multiple locations (see below). Please check if this is a correct behavior or a random name match:
+    /home/vesc/vesc_express/managed_components/espressif__esp_hosted/host/mcu/eh_host_mcu_transport/Kconfig.host.sdio:297
+    /home/vesc/vesc_express/managed_components/espressif__esp_hosted/host/mcu/eh_host_mcu_transport/Kconfig.host.sdio:251
+info: INFO: Symbol ESP_HOSTED_HOST_SDIO_PIN_D0 defined in multiple locations (see below). Please check if this is a correct behavior or a random name match:
+    /home/vesc/vesc_express/managed_components/espressif__esp_hosted/host/mcu/eh_host_mcu_transport/Kconfig.host.sdio:257
+    /home/vesc/vesc_express/managed_components/espressif__esp_hosted/host/mcu/eh_host_mcu_transport/Kconfig.host.sdio:308
+info: INFO: Symbol ESP_HOSTED_HOST_SDIO_PIN_D1 defined in multiple locations (see below). Please check if this is a correct behavior or a random name match:
+    /home/vesc/vesc_express/managed_components/espressif__esp_hosted/host/mcu/eh_host_mcu_transport/Kconfig.host.sdio:264
+    /home/vesc/vesc_express/managed_components/espressif__esp_hosted/host/mcu/eh_host_mcu_transport/Kconfig.host.sdio:320
+info: INFO: Symbol ESP_HOSTED_HOST_SDIO_PIN_D2 defined in multiple locations (see below). Please check if this is a correct behavior or a random name match:
+    /home/vesc/vesc_express/managed_components/espressif__esp_hosted/host/mcu/eh_host_mcu_transport/Kconfig.host.sdio:331
+    /home/vesc/vesc_express/managed_components/espressif__esp_hosted/host/mcu/eh_host_mcu_transport/Kconfig.host.sdio:270
+info: INFO: Symbol ESP_HOSTED_HOST_SDIO_PIN_D3 defined in multiple locations (see below). Please check if this is a correct behavior or a random name match:
+    /home/vesc/vesc_express/managed_components/espressif__esp_hosted/host/mcu/eh_host_mcu_transport/Kconfig.host.sdio:276
+    /home/vesc/vesc_express/managed_components/espressif__esp_hosted/host/mcu/eh_host_mcu_transport/Kconfig.host.sdio:342
+info: INFO: Choice ESP_HOST_DEV_BOARD defined in multiple locations (see below). Please check if this is a correct behavior or a random name match:
+    /home/vesc/vesc_express/managed_components/espressif__esp_hosted/coprocessor/Kconfig.ext:67
+    /home/vesc/vesc_express/managed_components/espressif__esp_hosted/host/Kconfig.ext:108
+[25/27] Linking CXX executable vesc_express.elf
+[26/27] Generating binary image from built executable
+esptool.py v4.12.0
+Creating esp32p4 image...
+Merged 4 ELF sections
+Successfully created esp32p4 image.
+Generated /home/vesc/vesc_express/build_p4_fast/vesc_express.bin
+[27/27] cd /home/vesc/vesc_express/build_p4_fast/esp-idf/esptool_py && /root/.espressif/python_env/idf5.5_py3.14_env/bin/python /root/esp/esp-idf-v5.5.4/components/partition_table/check_sizes.py --offset 0x8000 partition --type app /home/vesc/vesc_express/build_p4_fast/partition_table/partition-table.bin /home/vesc/vesc_express/build_p4_fast/vesc_express.bin
+vesc_express.bin binary size 0xefd70 bytes. Smallest app partition is 0x400000 bytes. 0x310290 bytes (77%) free.

@@ -1,0 +1,86 @@
+Command: cmake -G Ninja -DPYTHON_DEPS_CHECKED=1 -DPYTHON=/root/.espressif/python_env/idf5.5_py3.14_env/bin/python -DESP_PLATFORM=1 -DCOMM_UART_BAUD=115200 -DEXTRA_SDKCONFIG=sdkconfig.bringup_uart -DCCACHE_ENABLE=0 /home/vesc/vesc_express
+CMake Deprecation Warning at CMakeLists.txt:1 (cmake_minimum_required):
+  Compatibility with CMake < 3.10 will be removed from a future version of
+  CMake.
+
+  Update the VERSION argument <min> value.  Or, use the <min>...<max> syntax
+  to tell CMake that the project requires at least <min> but has been updated
+  to work with policies introduced by <max> or earlier.
+
+
+Processing target WS P4 Touch LCD 4.3 on esp32p4_ws_lcd43 for file main/hwconf/waveshare/p4_touch_lcd43/hw_ws_p4_touch_lcd43.h
+warning: the int symbol ESP_HOSTED_BT_UART_PORT_ESP32 (defined at /home/vesc/vesc_express/managed_components/espressif__esp_hosted/coprocessor/eh_cp_core/Kconfig.ext:103) has a non-int range [BTDM_CTRL_HCI_UART_NO (undefined), BTDM_CTRL_HCI_UART_NO (undefined)]
+warning: the int symbol ESP_HOSTED_BT_UART_BAUDRATE_ESP32 (defined at /home/vesc/vesc_express/managed_components/espressif__esp_hosted/coprocessor/eh_cp_core/Kconfig.ext:109) has a non-int range [BTDM_CTRL_HCI_UART_BAUDRATE (undefined), BTDM_CTRL_HCI_UART_BAUDRATE (undefined)]
+warning: the int symbol ESP_HOSTED_BT_UART_PORT (defined at /home/vesc/vesc_express/managed_components/espressif__esp_hosted/coprocessor/eh_cp_core/Kconfig.ext:121) has a non-int default BT_LE_HCI_UART_PORT (undefined)
+warning: the int symbol ESP_HOSTED_BT_UART_TX_PIN (defined at /home/vesc/vesc_express/managed_components/espressif__esp_hosted/coprocessor/eh_cp_core/Kconfig.ext:128) has a non-int default BT_LE_HCI_UART_TX_PIN (undefined)
+warning: the int symbol ESP_HOSTED_BT_UART_RX_PIN (defined at /home/vesc/vesc_express/managed_components/espressif__esp_hosted/coprocessor/eh_cp_core/Kconfig.ext:135) has a non-int default BT_LE_HCI_UART_RX_PIN (undefined)
+warning: the int symbol ESP_HOSTED_BT_UART_RTS_PIN (defined at /home/vesc/vesc_express/managed_components/espressif__esp_hosted/coprocessor/eh_cp_core/Kconfig.ext:142) has a non-int default BT_LE_HCI_UART_RTS_PIN (undefined)
+warning: the int symbol ESP_HOSTED_BT_UART_CTS_PIN (defined at /home/vesc/vesc_express/managed_components/espressif__esp_hosted/coprocessor/eh_cp_core/Kconfig.ext:150) has a non-int default BT_LE_HCI_UART_CTS_PIN (undefined)
+warning: the int symbol ESP_HOSTED_BT_UART_BAUDRATE (defined at /home/vesc/vesc_express/managed_components/espressif__esp_hosted/coprocessor/eh_cp_core/Kconfig.ext:158) has a non-int default BT_LE_HCI_UART_BAUD (undefined)
+info: INFO: Symbol ESP_ESP32C5_SPI_RASPI_MATING_BOARD defined in multiple locations (see below). Please check if this is a correct behavior or a random name match:
+    /home/vesc/vesc_express/managed_components/espressif__esp_hosted/coprocessor/Kconfig.ext:71
+    /home/vesc/vesc_express/managed_components/espressif__esp_hosted/host/Kconfig.ext:112
+info: INFO: Symbol ESP_HOSTED_P4_DEV_BOARD_NONE defined in multiple locations (see below). Please check if this is a correct behavior or a random name match:
+    /home/vesc/vesc_express/managed_components/espressif__esp_hosted/coprocessor/Kconfig.ext:75
+    /home/vesc/vesc_express/managed_components/espressif__esp_hosted/host/Kconfig.ext:116
+info: INFO: Symbol ESP_HOSTED_P4_DEV_BOARD_FUNC_BOARD defined in multiple locations (see below). Please check if this is a correct behavior or a random name match:
+    /home/vesc/vesc_express/managed_components/espressif__esp_hosted/coprocessor/Kconfig.ext:78
+    /home/vesc/vesc_express/managed_components/espressif__esp_hosted/host/Kconfig.ext:119
+info: INFO: Symbol ESP_HOSTED_C2_C5_MODULE_SUB_BOARD defined in multiple locations (see below). Please check if this is a correct behavior or a random name match:
+    /home/vesc/vesc_express/managed_components/espressif__esp_hosted/host/Kconfig.ext:139
+    /home/vesc/vesc_express/managed_components/espressif__esp_hosted/coprocessor/Kconfig.ext:82
+info: INFO: Symbol LWIP_TCP_LOCAL_PORT_RANGE_START defined in multiple locations (see below). Please check if this is a correct behavior or a random name match:
+    /home/vesc/vesc_express/managed_components/espressif__esp_hosted/host/features/eh_host_feat_nw_split/Kconfig.ext:72
+    /home/vesc/vesc_express/managed_components/espressif__esp_hosted/coprocessor/features/eh_cp_feat_nw_split/Kconfig.ext:84
+info: INFO: Symbol LWIP_TCP_LOCAL_PORT_RANGE_END defined in multiple locations (see below). Please check if this is a correct behavior or a random name match:
+    /home/vesc/vesc_express/managed_components/espressif__esp_hosted/host/features/eh_host_feat_nw_split/Kconfig.ext:78
+    /home/vesc/vesc_express/managed_components/espressif__esp_hosted/coprocessor/features/eh_cp_feat_nw_split/Kconfig.ext:92
+info: INFO: Symbol LWIP_UDP_LOCAL_PORT_RANGE_START defined in multiple locations (see below). Please check if this is a correct behavior or a random name match:
+    /home/vesc/vesc_express/managed_components/espressif__esp_hosted/host/features/eh_host_feat_nw_split/Kconfig.ext:84
+    /home/vesc/vesc_express/managed_components/espressif__esp_hosted/coprocessor/features/eh_cp_feat_nw_split/Kconfig.ext:100
+info: INFO: Symbol LWIP_UDP_LOCAL_PORT_RANGE_END defined in multiple locations (see below). Please check if this is a correct behavior or a random name match:
+    /home/vesc/vesc_express/managed_components/espressif__esp_hosted/coprocessor/features/eh_cp_feat_nw_split/Kconfig.ext:108
+    /home/vesc/vesc_express/managed_components/espressif__esp_hosted/host/features/eh_host_feat_nw_split/Kconfig.ext:90
+info: INFO: Symbol LWIP_TCP_REMOTE_PORT_RANGE_START defined in multiple locations (see below). Please check if this is a correct behavior or a random name match:
+    /home/vesc/vesc_express/managed_components/espressif__esp_hosted/host/features/eh_host_feat_nw_split/Kconfig.ext:98
+    /home/vesc/vesc_express/managed_components/espressif__esp_hosted/coprocessor/features/eh_cp_feat_nw_split/Kconfig.ext:118
+info: INFO: Symbol LWIP_TCP_REMOTE_PORT_RANGE_END defined in multiple locations (see below). Please check if this is a correct behavior or a random name match:
+    /home/vesc/vesc_express/managed_components/espressif__esp_hosted/host/features/eh_host_feat_nw_split/Kconfig.ext:104
+    /home/vesc/vesc_express/managed_components/espressif__esp_hosted/coprocessor/features/eh_cp_feat_nw_split/Kconfig.ext:126
+info: INFO: Symbol LWIP_UDP_REMOTE_PORT_RANGE_START defined in multiple locations (see below). Please check if this is a correct behavior or a random name match:
+    /home/vesc/vesc_express/managed_components/espressif__esp_hosted/coprocessor/features/eh_cp_feat_nw_split/Kconfig.ext:134
+    /home/vesc/vesc_express/managed_components/espressif__esp_hosted/host/features/eh_host_feat_nw_split/Kconfig.ext:110
+info: INFO: Symbol LWIP_UDP_REMOTE_PORT_RANGE_END defined in multiple locations (see below). Please check if this is a correct behavior or a random name match:
+    /home/vesc/vesc_express/managed_components/espressif__esp_hosted/coprocessor/features/eh_cp_feat_nw_split/Kconfig.ext:142
+    /home/vesc/vesc_express/managed_components/espressif__esp_hosted/host/features/eh_host_feat_nw_split/Kconfig.ext:116
+info: INFO: Symbol ESP_HOSTED_HOST_RESET_GPIO defined in multiple locations (see below). Please check if this is a correct behavior or a random name match:
+    /home/vesc/vesc_express/managed_components/espressif__esp_hosted/host/mcu/eh_host_mcu_transport/Kconfig.host.spi:44
+    /home/vesc/vesc_express/managed_components/espressif__esp_hosted/host/mcu/eh_host_mcu_transport/Kconfig.host.sdio:214
+    /home/vesc/vesc_express/managed_components/espressif__esp_hosted/host/mcu/eh_host_mcu_transport/Kconfig.host.spi_hd:50
+    /home/vesc/vesc_express/managed_components/espressif__esp_hosted/host/mcu/eh_host_mcu_transport/Kconfig.host.uart:14
+info: INFO: Symbol ESP_HOSTED_HOST_RESET_ACTIVE_LOW defined in multiple locations (see below). Please check if this is a correct behavior or a random name match:
+    /home/vesc/vesc_express/managed_components/espressif__esp_hosted/host/mcu/eh_host_mcu_transport/Kconfig.host.uart:32
+    /home/vesc/vesc_express/managed_components/espressif__esp_hosted/host/mcu/eh_host_mcu_transport/Kconfig.host.sdio:236
+    /home/vesc/vesc_express/managed_components/espressif__esp_hosted/host/mcu/eh_host_mcu_transport/Kconfig.host.spi:56
+    /home/vesc/vesc_express/managed_components/espressif__esp_hosted/host/mcu/eh_host_mcu_transport/Kconfig.host.spi_hd:71
+info: INFO: Symbol ESP_HOSTED_HOST_SDIO_PIN_CMD defined in multiple locations (see below). Please check if this is a correct behavior or a random name match:
+    /home/vesc/vesc_express/managed_components/espressif__esp_hosted/host/mcu/eh_host_mcu_transport/Kconfig.host.sdio:245
+    /home/vesc/vesc_express/managed_components/espressif__esp_hosted/host/mcu/eh_host_mcu_transport/Kconfig.host.sdio:286
+info: INFO: Symbol ESP_HOSTED_HOST_SDIO_PIN_CLK defined in multiple locations (see below). Please check if this is a correct behavior or a random name match:
+    /home/vesc/vesc_express/managed_components/espressif__esp_hosted/host/mcu/eh_host_mcu_transport/Kconfig.host.sdio:251
+    /home/vesc/vesc_express/managed_components/espressif__esp_hosted/host/mcu/eh_host_mcu_transport/Kconfig.host.sdio:297
+info: INFO: Symbol ESP_HOSTED_HOST_SDIO_PIN_D0 defined in multiple locations (see below). Please check if this is a correct behavior or a random name match:
+    /home/vesc/vesc_express/managed_components/espressif__esp_hosted/host/mcu/eh_host_mcu_transport/Kconfig.host.sdio:308
+    /home/vesc/vesc_express/managed_components/espressif__esp_hosted/host/mcu/eh_host_mcu_transport/Kconfig.host.sdio:257
+info: INFO: Symbol ESP_HOSTED_HOST_SDIO_PIN_D1 defined in multiple locations (see below). Please check if this is a correct behavior or a random name match:
+    /home/vesc/vesc_express/managed_components/espressif__esp_hosted/host/mcu/eh_host_mcu_transport/Kconfig.host.sdio:264
+    /home/vesc/vesc_express/managed_components/espressif__esp_hosted/host/mcu/eh_host_mcu_transport/Kconfig.host.sdio:320
+info: INFO: Symbol ESP_HOSTED_HOST_SDIO_PIN_D2 defined in multiple locations (see below). Please check if this is a correct behavior or a random name match:
+    /home/vesc/vesc_express/managed_components/espressif__esp_hosted/host/mcu/eh_host_mcu_transport/Kconfig.host.sdio:331
+    /home/vesc/vesc_express/managed_components/espressif__esp_hosted/host/mcu/eh_host_mcu_transport/Kconfig.host.sdio:270
+info: INFO: Symbol ESP_HOSTED_HOST_SDIO_PIN_D3 defined in multiple locations (see below). Please check if this is a correct behavior or a random name match:
+    /home/vesc/vesc_express/managed_components/espressif__esp_hosted/host/mcu/eh_host_mcu_transport/Kconfig.host.sdio:276
+    /home/vesc/vesc_express/managed_components/espressif__esp_hosted/host/mcu/eh_host_mcu_transport/Kconfig.host.sdio:342
+info: INFO: Choice ESP_HOST_DEV_BOARD defined in multiple locations (see below). Please check if this is a correct behavior or a random name match:
+    /home/vesc/vesc_express/managed_components/espressif__esp_hosted/host/Kconfig.ext:108
+    /home/vesc/vesc_express/managed_components/espressif__esp_hosted/coprocessor/Kconfig.ext:67

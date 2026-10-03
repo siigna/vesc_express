@@ -1,5 +1,10 @@
 /*
+	Copyright Benjamin Vedder
+	Copyright DovPear
 	Copyright 2026 Stephen Bouche
+
+	Parts of this file were moved here from examples/esp32c3-st7789/main/disp_st7789.c, main/display/disp_axs15231.c, main/display/disp_st7701.c;
+	git blame -C records 32 lines as DovPear's, 3 lines as Benjamin Vedder's, 3 lines as DovPearX's.
 
 	This file is part of the ESCargot firmware.
 

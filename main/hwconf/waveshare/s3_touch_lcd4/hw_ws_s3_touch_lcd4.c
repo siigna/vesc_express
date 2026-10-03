@@ -1,5 +1,9 @@
 /*
+	Copyright Benjamin Vedder
 	Copyright 2026 Stephen Bouche
+
+	Parts of this file were moved here from examples/esp32c3-st7789/main/disp_st7789.c, main/hwconf/vesc/express_plus/hw_express_plus.c, main/hwconf/vesc/vdisp_dual/hw_vdisp_dual.c;
+	git blame -C records 6 lines as Benjamin Vedder's.
 
 	This file is part of the ESCargot firmware.
 

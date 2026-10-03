@@ -1,5 +1,9 @@
 /*
+	Copyright Benjamin Vedder
 	Copyright 2026 Stephen Bouche
+
+	Parts of this file were moved here from main/commands.c, main/lispif.c, main/lispif_vesc_extensions.c;
+	git blame -C records 7 lines as Benjamin Vedder's.
 
 	This file is part of the ESCargot firmware.
 

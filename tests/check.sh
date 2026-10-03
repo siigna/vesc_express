@@ -120,9 +120,19 @@ if ! command -v cppcheck >/dev/null 2>&1; then
     # same way as a tool that found something.
     printf '  skipped: no cppcheck\n'
 else
+    # --check-level=exhaustive, and not only for the extra thoroughness. At
+    # the normal level cppcheck 2.18 emits an *informational* message about
+    # limiting branch analysis, and --error-exitcode turns that advice into a
+    # red stage -- a tool saying it did less work should not report the same
+    # as a tool finding a bug. Ubuntu's 2.13 does not emit it at all, so this
+    # passed in CI and failed in the pinned shell, which is the version
+    # sensitivity the pinning exists to surface.
+    #
+    # toomanyconfigs is the same kind of notice about #ifdef combinations.
     cppcheck --enable=warning,style,performance,portability \
         --error-exitcode=1 --inline-suppr --quiet \
-        --suppress=missingIncludeSystem \
+        --check-level=exhaustive \
+        --suppress=missingIncludeSystem --suppress=toomanyconfigs \
         -I main/lua -I main/script \
         -I main/lispBM/utils -I main/display \
         main/script/script_pack.c main/script/script_lua.c \

@@ -70,6 +70,20 @@ REPL_SRC = $(LISPBM_SRC)\
            ../utils/mcp/lbm_mcp.c \
            ../utils/mcp/cJSON.c
 
+# Local integration, not part of lispBM. src/extensions/ttf_extensions.c is in
+# the base source list, it includes "ttf_font.h", and it calls font_get_* --
+# none of which lispBM implements. The host application provides that font
+# API: in the firmware it is main/display/ttf_font.c, and the repl is a host
+# application too.
+#
+# Without this the repl does not link at all, with a wall of undefined
+# references to font_get_*. It was the include path alone that was here,
+# attached to the clay feature, which is why `make` failed the same way with
+# or without clay.
+DISPLAY_DIR ?= ../../display
+CCFLAGS += -I$(DISPLAY_DIR)
+REPL_SRC += $(DISPLAY_DIR)/ttf_font.c
+
 ## Dropped usage of pkg-config as it felt like more trouble than benefit.
 ## pkg-config searches for .pc files unrelated to compile flags such as -m32.
 ## Using just -lasound (for example) means that the linker will look for

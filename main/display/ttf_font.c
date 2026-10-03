@@ -156,6 +156,15 @@ bool font_get_kerning(uint8_t *buffer, uint32_t left, uint32_t right, float *x_s
 bool ttf_font_utf32(const uint8_t *utf8, uint32_t *utf32, uint32_t ix,
 		uint32_t *next_ix) {
 	const uint8_t *u = &utf8[ix];
+
+	/*
+	 * Initialised deliberately, and deliberately kept: every branch below
+	 * that reads c assigns it first, so the zero is never used and cppcheck
+	 * says so -- but a branch added later that forgot would read whatever was
+	 * on the stack and produce a plausible wrong codepoint rather than
+	 * failing. The one-line defence outlives the style note.
+	 */
+	// cppcheck-suppress unreadVariable
 	uint32_t c = 0;
 
 	if (u[0] == 0) {

@@ -32,11 +32,26 @@ jobs:
       # The sanitizers are the point of this job. UBSan caught a signed shift
       # overflow in the container parser on the first run it ever did, so a
       # green tick here without them would mean less than it appears to.
+      #
+      # Checked in the binaries, not in the Makefile. The old version grepped
+      # for 'fsanitize=address' and 'fsanitize=undefined' as separate strings,
+      # and the Makefile sets them together as -fsanitize=address,undefined --
+      # so the second grep could never match and this job had been red since
+      # the flags were merged, while the tests underneath it passed. A check on
+      # the text describing the build is a proxy; the runtime symbols are the
+      # thing itself.
       - name: Confirm sanitizers were active
         run: |
           set -e
-          grep -q 'fsanitize=address' main/script/test/Makefile
-          grep -q 'fsanitize=undefined' main/script/test/Makefile
+          for b in main/script/test/test_script_pack \
+                   main/script/test/test_script_lua; do
+              nm "$b" > /tmp/syms.txt
+              grep -q '__asan_init' /tmp/syms.txt \
+                  || { echo "$b has no ASan runtime"; exit 1; }
+              grep -q '__ubsan_handle' /tmp/syms.txt \
+                  || { echo "$b has no UBSan runtime"; exit 1; }
+              echo "  ok  $b carries both sanitizer runtimes"
+          done
 
   packer:
     name: packer selftest
@@ -132,30 +147,42 @@ jobs:
       - name: LispBM
         shell: bash
         run: |
-          . $IDF_PATH/export.sh
+          . "$IDF_PATH/export.sh"
           idf.py -B build_lisp -DSDKCONFIG=build_lisp/sdkconfig \
             -DIDF_TARGET=esp32s3 -DHW_NAME="S3 N16R8" build
       - name: Lua
         shell: bash
         run: |
-          . $IDF_PATH/export.sh
+          . "$IDF_PATH/export.sh"
           idf.py -B build_lua -DSDKCONFIG=build_lua/sdkconfig \
             -DIDF_TARGET=esp32s3 -DHW_NAME="S3 N16R8" -DSCRIPT_ENGINE=lua build
       # A lua build that still links LispBM would mean the exclusion silently
       # stopped working, which the size alone would not reveal.
+      #
+      # The symbol lists go to files first. `nm ... | grep -q` exits as soon
+      # as grep finds a match, nm then dies on the closed pipe, and under the
+      # -o pipefail this step runs with, the pipeline's status becomes 141 --
+      # so this step failed with SIGPIPE and no message, having asserted
+      # nothing, while both builds and the swap itself were fine.
       - name: Confirm the swap actually happened
         shell: bash
         run: |
-          . $IDF_PATH/export.sh
+          . "$IDF_PATH/export.sh"
           set -e
-          nm build_lua/vesc_express.elf | grep -q ' T lua_newstate'
-          if nm build_lua/vesc_express.elf | grep -qE ' T (lbm_add_extension|eval_cps_run)'; then
+          nm build_lua/vesc_express.elf > /tmp/lua_syms.txt
+          nm build_lisp/vesc_express.elf > /tmp/lisp_syms.txt
+
+          grep -q ' T lua_newstate' /tmp/lua_syms.txt \
+              || { echo "the lua build has no interpreter"; exit 1; }
+          if grep -qE ' T (lbm_add_extension|eval_cps_run)' /tmp/lua_syms.txt; then
             echo "LispBM symbols found in the lua build"; exit 1
           fi
-          nm build_lisp/vesc_express.elf | grep -q ' T lbm_add_extension'
-          if nm build_lisp/vesc_express.elf | grep -q ' T lua_newstate'; then
+          grep -q ' T lbm_add_extension' /tmp/lisp_syms.txt \
+              || { echo "the lisp build has no LispBM"; exit 1; }
+          if grep -q ' T lua_newstate' /tmp/lisp_syms.txt; then
             echo "Lua symbols found in the lisp build"; exit 1
           fi
+          echo "  ok  each build carries one engine and not the other"
       # The panel drivers are shared between engines, with their LispBM
       # extension wrappers behind #if SCRIPT_ENGINE_LISP. Getting that guard
       # wrong compiles cleanly either way -- too wide and the lisp build
@@ -166,7 +193,13 @@ jobs:
         shell: bash
         run: |
           set -e
-          present() { tr -c '[:print:]' '\n' < "$1" | grep -qx 'ext-disp-cmd'; }
+          # Strings to a file first, like the symbol lists above: a
+          # `tr | grep -q` pipeline under pipefail can report 141 *after a
+          # successful match*, because grep exits and tr takes SIGPIPE. Inside
+          # `if ! present ...` that inverts the verdict rather than failing
+          # the step, so the wrong answer would have been the quiet one.
+          strings_of() { tr -c '[:print:]' '\n' < "$1" > /tmp/strings.txt; }
+          present() { strings_of "$1"; grep -qx 'ext-disp-cmd' /tmp/strings.txt; }
           if ! present build_lisp/vesc_express.bin; then
             echo "lisp build lost ext-disp-cmd: the guard is too wide"; exit 1
           fi
@@ -181,12 +214,14 @@ jobs:
       - name: Confirm the touch core is shared and the bindings are not
         shell: bash
         run: |
-          . $IDF_PATH/export.sh
+          . "$IDF_PATH/export.sh"
           set -e
-          sym() { nm "$1" | grep -q " T touch_core_load_i2c"; }
-          str() { tr -c '[:print:]' '\n' < "$1" | grep -qx "$2"; }
+          # Same reason as the step above: no pipeline whose left-hand side
+          # can be killed by grep exiting early.
+          sym() { nm "$1" > /tmp/nm.txt; grep -q " T touch_core_load_i2c" /tmp/nm.txt; }
+          str() { tr -c '[:print:]' '\n' < "$1" > /tmp/str.txt; grep -qx "$2" /tmp/str.txt; }
           for b in build_lisp build_lua; do
-            if ! sym $b/vesc_express.elf; then
+            if ! sym "$b/vesc_express.elf"; then
               echo "$b has no touch core"; exit 1
             fi
           done
@@ -213,12 +248,12 @@ jobs:
       - name: Compile vendored Lua
         shell: bash
         run: |
-          . $IDF_PATH/export.sh
+          . "$IDF_PATH/export.sh"
           mkdir -p /tmp/luaobj
           cd main/lua
           for f in *.c; do
             xtensa-esp32s3-elf-gcc -c -Os -I. -ffunction-sections -fdata-sections \
-              -Werror -o /tmp/luaobj/${f%.c}.o $f
+              -Werror -o "/tmp/luaobj/${f%.c}.o" "$f"
           done
           xtensa-esp32s3-elf-size -A /tmp/luaobj/*.o | \
             awk '/^\.text/{t+=$2} /^\.rodata/{r+=$2} END{printf "flash total: %d B\n", t+r}'
